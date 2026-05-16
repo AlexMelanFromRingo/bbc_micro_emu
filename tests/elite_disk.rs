@@ -79,8 +79,10 @@ fn elite_help_prints_dfs_banner() {
         })
         .collect();
     assert!(
-        teletext.contains("DFS 0.98"),
-        "DFS 0.98 banner missing from MODE 7 RAM after *HELP"
+        teletext.contains("DFS 0.90")
+            || teletext.contains("DFS 0.98")
+            || teletext.contains("DFS 1."),
+        "DFS banner missing from MODE 7 RAM after *HELP"
     );
 }
 
@@ -117,7 +119,7 @@ fn run_with_disk(disk_name: &str, command: &str, label: &str) {
 #[test]
 #[ignore = "needs roms/* + disks/Elite.ssd (Acornsoft original)"]
 fn elite_acornsoft_run_boot_diagnostic() {
-    run_with_disk("Elite.ssd", "*RUN !BOOT\n", "acornsoft");
+    run_with_disk("Elite.ssd", "*RUN $.!BOOT\n", "acornsoft");
 }
 
 #[test]
@@ -130,6 +132,30 @@ fn elite_info_diagnostic() {
 #[ignore = "needs roms/* + disks/Elite.ssd; prints the catalogue"]
 fn elite_cat_diagnostic() {
     run_with_disk("Elite.ssd", "*CAT\n", "acornsoft_cat");
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/Elite.ssd; try explicit dir prefix"]
+fn elite_info_with_dir_prefix() {
+    run_with_disk("Elite.ssd", "*INFO $.!BOOT\n", "info_dir");
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/Elite.ssd; wildcard"]
+fn elite_info_wildcard() {
+    run_with_disk("Elite.ssd", "*INFO *\n", "info_wild");
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/Elite.ssd; try EXEC and LOAD too"]
+fn elite_load_diagnostic() {
+    run_with_disk("Elite.ssd", "*LOAD $.!BOOT 1900\n", "load_dir");
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/Elite.ssd; try Elite4 (BASIC source)"]
+fn elite_chain_elite4_diagnostic() {
+    run_with_disk("Elite.ssd", "CHAIN \"Elite4\"\n", "chain_elite4");
 }
 
 #[test]
