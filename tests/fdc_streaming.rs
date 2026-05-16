@@ -62,7 +62,7 @@ fn read_drive_status_reports_drive_loaded() {
     fdc.write(0, 0x3A);
     fdc.write(1, 0x23);
     fdc.write(1, 0x48);
-    // Now Read Drive Status (command 0x2C, no parameters).
+    fdc.tick(2_000); // settle past the spin-up window
     fdc.write(0, 0x2C);
     let status = fdc.read(0);
     assert!(

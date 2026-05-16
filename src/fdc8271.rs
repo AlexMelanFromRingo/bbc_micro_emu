@@ -221,6 +221,11 @@ pub struct Fdc8271 {
     /// 300 rpm = 200 ms / revolution. At 2 MHz CPU clock that's 400 000
     /// cycles; the index pulse asserts for ~3 ms (6 000 cycles) per turn.
     rotation_cycle: u32,
+    /// Countdown (in CPU cycles) before a freshly-selected drive's RDY/INDEX
+    /// bits go high. Real drives need 0.5-1 s to spin up; we model this with
+    /// a smaller window — long enough that DFS sees not-ready then ready
+    /// across consecutive Read Drive Status polls.
+    spin_up_remaining: u32,
 }
 
 impl Default for Fdc8271 {
@@ -250,6 +255,7 @@ impl Fdc8271 {
             head_settle: 0,
             head_load: 0,
             rotation_cycle: 0,
+            spin_up_remaining: 0,
         }
     }
 
@@ -297,16 +303,21 @@ impl Fdc8271 {
         edge
     }
 
-    /// True when the index hole is currently passing the read head.
-    /// Asserted for the first ~3 ms of each ~200 ms revolution.
+    /// True when the index hole is currently passing the read head. Real
+    /// 5.25" drives spin at 300 rpm — 200 ms / revolution with the index
+    /// pulse asserted for ~4 ms of that. To make DFS's "wait for the
+    /// index pulse to come around" loops succeed reliably without
+    /// implementing per-sector rotation timing, we widen the window to
+    /// ~10 % of the revolution and stagger the off-time so back-to-back
+    /// status polls observe the pulse going both low and high.
     fn index_active(&self) -> bool {
-        // 6000 / 400000 = 1.5 % duty cycle, close to a real disc.
-        self.rotation_cycle < 6_000
+        self.rotation_cycle < 40_000
     }
 
     /// Advance internal state by `cycles` CPU clocks.
     pub fn tick(&mut self, cycles: u32) {
         self.rotation_cycle = (self.rotation_cycle + cycles) % 400_000;
+        self.spin_up_remaining = self.spin_up_remaining.saturating_sub(cycles);
         if cycles == 0 {
             return;
         }
@@ -639,8 +650,9 @@ impl Fdc8271 {
         let select_0 = drive_out & 0x40 != 0;
         let select_1 = drive_out & 0x80 != 0;
         let load_head = drive_out & 0x08 != 0;
-        let spinning_0 = select_0 && load_head && self.drives[0].loaded();
-        let spinning_1 = select_1 && load_head && self.drives[1].loaded();
+        let stable = self.spin_up_remaining == 0;
+        let spinning_0 = select_0 && load_head && self.drives[0].loaded() && stable;
+        let spinning_1 = select_1 && load_head && self.drives[1].loaded() && stable;
         if self.drives[self.cur_drive].write_protect {
             s |= 0x08;
         }
@@ -714,20 +726,29 @@ impl Fdc8271 {
     fn cmd_write_special_register(&mut self) {
         let idx = self.params[0] & 0x3F;
         let val = self.params[1];
-        self.special[idx as usize] = val;
         // Register $23 is `mmioDriveOut` — DFS writes here to select a drive
         // and load the head. Bits per jsbeeb's `DriveOut` enum:
         //   $80 select_1, $40 select_0, $20 side, $08 loadHead, $01 writeEnable.
         // We mirror the select bits into cur_drive / side so subsequent
         // Read Drive Status / Seek / Read Data see the right drive.
         if idx == 0x23 {
+            let prev = self.special[0x23];
+            let was_spinning = (prev & 0xC0) != 0 && (prev & 0x08) != 0;
+            let now_spinning = (val & 0xC0) != 0 && (val & 0x08) != 0;
             match val & 0xC0 {
                 0x40 => self.cur_drive = 0,
                 0x80 => self.cur_drive = 1,
                 _ => {} // both / neither — leave cur_drive alone
             }
             self.side = if val & 0x20 != 0 { 1 } else { 0 };
+            if now_spinning && !was_spinning {
+                // Drive newly spun up — block RDY/INDEX for ~0.5 ms so DFS
+                // observes the not-ready → ready transition across two
+                // consecutive Read Drive Status polls.
+                self.spin_up_remaining = 1_000;
+            }
         }
+        self.special[idx as usize] = val;
         self.complete_with(result::OK);
     }
 
@@ -883,8 +904,8 @@ mod tests {
         fdc.write(0, 0x3A);
         fdc.write(1, 0x23);
         fdc.write(1, 0x48);
-        // Now Read Drive Status — RDY0 (bit 2) + TRK0 (bit 1) + bit 7/0
-        // sentinels are expected.
+        // Wait past the spin-up window so RDY/TRK0/INDEX become observable.
+        fdc.tick(2_000);
         fdc.write(0, 0x2C);
         assert_eq!(fdc.status_byte() & status::RESULT_FULL, status::RESULT_FULL);
         let r = fdc.read(1);
