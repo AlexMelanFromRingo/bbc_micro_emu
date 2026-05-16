@@ -90,6 +90,8 @@ pub struct DisplayApp {
     /// Keeps the cpal stream alive for the lifetime of the window.
     /// Dropping it (or initialisation failure) silently disables audio.
     _audio: Option<crate::audio::AudioOutput>,
+    fps_accum: u32,
+    fps_window_start: Instant,
 }
 
 impl DisplayApp {
@@ -109,6 +111,8 @@ impl DisplayApp {
             context: None,
             title_prefix: title.into(),
             _audio: audio,
+            fps_accum: 0,
+            fps_window_start: Instant::now(),
         }
     }
 
@@ -186,13 +190,40 @@ impl ApplicationHandler for DisplayApp {
                 }
             }
             WindowEvent::RedrawRequested => {
-                // Step ~one frame of the machine, then blit.
-                if let Err(err) = self.machine.run_one_frame() {
-                    eprintln!("machine error: {err}");
-                    event_loop.exit();
-                    return;
+                // Real-time pace: at 2 MHz one PAL frame = 40 000 cycles =
+                // 20 ms. Compute how many full frames of CPU time have
+                // elapsed in wall-time since the last redraw and run
+                // exactly that much, capped at 4 frames so a stalled host
+                // can't make us spiral. If we're caught up, we'll naturally
+                // sleep at the bottom of the handler.
+                let frame_micros = 20_000u128;
+                let elapsed = self.last_frame.elapsed().as_micros();
+                let mut frames_to_run = (elapsed / frame_micros).max(1) as u32;
+                if frames_to_run > 4 {
+                    frames_to_run = 4;
+                }
+                for _ in 0..frames_to_run {
+                    if let Err(err) = self.machine.run_one_frame() {
+                        eprintln!("machine error: {err}");
+                        event_loop.exit();
+                        return;
+                    }
                 }
                 self.machine.render_into(&mut self.fb);
+                // Update title with measured FPS.
+                if let Some(win) = self.window.as_ref() {
+                    self.fps_accum += 1;
+                    if self.fps_accum >= 50 {
+                        let secs = self.fps_window_start.elapsed().as_secs_f32();
+                        let fps = self.fps_accum as f32 / secs.max(0.001);
+                        win.set_title(&format!(
+                            "{} — BBC Micro · {fps:.0} fps",
+                            self.title_prefix
+                        ));
+                        self.fps_accum = 0;
+                        self.fps_window_start = Instant::now();
+                    }
+                }
 
                 if let (Some(surface), Some(window)) = (self.surface.as_mut(), self.window.as_ref())
                 {
