@@ -14,12 +14,14 @@ use bbc_micro_emu::system_via::BbcKey;
 use bbc_micro_emu::{Framebuffer, Machine, MachineConfig, MemoryConfig};
 
 /// Briefly hold a real BBC key down so an in-game keyboard scan (Elite
-/// reads PA via System VIA, not OSRDCH) can observe it.
+/// reads PA via System VIA, not OSRDCH) can observe it. We hold for at
+/// least one 50 Hz VSYNC period (≈320 000 cycles at 2 MHz) so Elite's
+/// per-frame input read window is guaranteed to overlap the press.
 fn tap_key(machine: &mut Machine, key: BbcKey) {
     machine.bus.hardware.system_via.set_key(key, true);
-    machine.run_for_cycles(200_000, u64::MAX).unwrap();
+    machine.run_for_cycles(800_000, u64::MAX).unwrap();
     machine.bus.hardware.system_via.set_key(key, false);
-    machine.run_for_cycles(50_000, u64::MAX).unwrap();
+    machine.run_for_cycles(200_000, u64::MAX).unwrap();
 }
 
 fn dump_mode7(machine: &Machine) {
@@ -226,9 +228,10 @@ fn elite_play_a_few_keys() {
     // 1 (Launch), 4 (Galactic Chart), 6 (Cobra Mk III), 7 (Inventory).
     let sequence = [
         ("after_boot", None),
-        ("after_space", Some(BbcKey::Space)),
-        ("after_1_launch", Some(BbcKey::K1)),
-        ("after_4_chart", Some(BbcKey::K4)),
+        ("after_f0_launch", Some(BbcKey::F0)),
+        ("after_f1_buy", Some(BbcKey::F1)),
+        ("after_f8_chart", Some(BbcKey::F3)),
+        ("after_escape", Some(BbcKey::Escape)),
     ];
     for (label, maybe_key) in sequence {
         if let Some(k) = maybe_key {
