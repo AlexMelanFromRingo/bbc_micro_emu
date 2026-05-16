@@ -21,6 +21,9 @@ fn print_usage() {
                                      (newlines = CR; goes through OSRDCH passthrough)\n\
            --audio-out PATH          dump 0.5 s of SN76489 audio at the end of\n\
                                      a headless run as 22.05 kHz mono WAV\n\
+           --save-state PATH         write a binary snapshot at the end of a\n\
+                                     headless run (RAM + CPU + key peripherals)\n\
+           --load-state PATH         restore from a snapshot before running\n\
            -h, --help                this help"
     );
 }
@@ -35,6 +38,8 @@ struct Args {
     disk: Option<PathBuf>,
     type_str: Option<String>,
     audio_out: Option<PathBuf>,
+    save_state: Option<PathBuf>,
+    load_state: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -71,6 +76,16 @@ fn parse_args() -> Result<Args, String> {
             "--audio-out" => {
                 args.audio_out = Some(PathBuf::from(
                     iter.next().ok_or("--audio-out needs a path")?,
+                ));
+            }
+            "--save-state" => {
+                args.save_state = Some(PathBuf::from(
+                    iter.next().ok_or("--save-state needs a path")?,
+                ));
+            }
+            "--load-state" => {
+                args.load_state = Some(PathBuf::from(
+                    iter.next().ok_or("--load-state needs a path")?,
                 ));
             }
             "-h" | "--help" => {
@@ -113,6 +128,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(cycles) = args.headless {
         let mut machine = build_machine(&args)?;
+        if let Some(path) = args.load_state.as_ref() {
+            bbc_micro_emu::snapshot::load_from_path(&mut machine, path)
+                .map_err(|e| format!("load_state {}: {e}", path.display()))?;
+            println!("loaded snapshot from {}", path.display());
+        }
         let warmup = if args.warmup_cycles == 0 {
             5_000_000
         } else {
@@ -165,6 +185,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 audio_path.display(),
                 aud
             );
+        }
+        if let Some(path) = args.save_state.as_ref() {
+            bbc_micro_emu::snapshot::save_to_path(&machine, path)
+                .map_err(|e| format!("save_state {}: {e}", path.display()))?;
+            println!("snapshot saved to {}", path.display());
         }
         return Ok(());
     }

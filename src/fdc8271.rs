@@ -884,6 +884,30 @@ impl Fdc8271 {
     pub fn current_track(&self) -> u8 {
         self.drives[self.cur_drive].track
     }
+
+    // ---- Snapshot accessors ----
+    pub fn drive_track(&self, drive: usize) -> u8 {
+        self.drives.get(drive).map(|d| d.track).unwrap_or(0)
+    }
+    pub fn set_drive_track(&mut self, drive: usize, track: u8) {
+        if let Some(d) = self.drives.get_mut(drive) {
+            d.track = track;
+        }
+    }
+    pub fn cur_drive_index(&self) -> usize {
+        self.cur_drive
+    }
+    pub fn set_cur_drive(&mut self, drive: usize) {
+        if drive < 2 {
+            self.cur_drive = drive;
+        }
+    }
+    pub fn side_index(&self) -> u8 {
+        self.side
+    }
+    pub fn set_side(&mut self, side: u8) {
+        self.side = side & 1;
+    }
 }
 
 #[cfg(test)]

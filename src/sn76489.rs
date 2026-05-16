@@ -180,6 +180,24 @@ impl Sn76489 {
         self.channels[ch].attenuation
     }
 
+    // ---- Snapshot accessors ----
+    pub fn set_channel_period(&mut self, ch: usize, period: u16) {
+        if ch < 4 {
+            self.channels[ch].period = period;
+        }
+    }
+    pub fn set_channel_attenuation(&mut self, ch: usize, att: u8) {
+        if ch < 4 {
+            self.channels[ch].attenuation = att;
+        }
+    }
+    pub fn noise_ctrl_byte(&self) -> u8 {
+        self.noise_ctrl
+    }
+    pub fn set_noise_ctrl_byte(&mut self, v: u8) {
+        self.noise_ctrl = v;
+    }
+
     /// True if any tone channel currently has non-silent attenuation
     /// AND a non-trivial period (i.e. the chip is actively producing
     /// audible output, not just sitting at power-on defaults).

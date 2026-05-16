@@ -40,6 +40,7 @@ pub mod memory;
 pub mod renderer;
 pub mod sheila;
 pub mod sn76489;
+pub mod snapshot;
 pub mod system_via;
 pub mod upd7002;
 pub mod user_via;

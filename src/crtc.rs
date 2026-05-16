@@ -39,7 +39,7 @@ pub struct Crtc6845 {
     /// Current scanline within the frame (0..vertical_total_scanlines).
     pub scanline_in_frame: u16,
     /// Cycle counter modulo cycles-per-scanline.
-    cycle_in_scanline: u16,
+    pub cycle_in_scanline: u16,
     /// Set true on the scanline where VSync starts; cleared once consumed.
     vsync_edge: bool,
     /// Set true while the VSync output is active (CA1 of System VIA).
@@ -113,6 +113,18 @@ impl Crtc6845 {
 
     pub fn reg(&self, idx: usize) -> u8 {
         self.regs[idx]
+    }
+
+    /// Read-only slice of all 18 6845 registers — used by the snapshot
+    /// encoder.
+    pub fn regs_slice(&self) -> &[u8] {
+        &self.regs
+    }
+
+    /// Mutable slice of all 18 6845 registers — used by the snapshot
+    /// decoder to restore state.
+    pub fn regs_slice_mut(&mut self) -> &mut [u8] {
+        &mut self.regs
     }
 
     pub fn horizontal_displayed(&self) -> u16 {

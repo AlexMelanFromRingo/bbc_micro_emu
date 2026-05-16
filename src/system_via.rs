@@ -244,7 +244,7 @@ pub struct SystemVia {
     pub ic32: u8,
     /// Keyboard matrix state: 10 columns, 8 rows each. `keys[col]` is a bitmask
     /// where bit `r` is 1 if the key at (col, r) is currently pressed.
-    keys: [u8; 10],
+    pub keys: [u8; 10],
     /// Capture of the previously-driven sound register (latched on /WE rising
     /// edge). Used by the optional sound chip emulation.
     pub sound_latch: u8,

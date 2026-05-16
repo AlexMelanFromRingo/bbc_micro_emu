@@ -216,10 +216,7 @@ impl ApplicationHandler for DisplayApp {
                     if self.fps_accum >= 50 {
                         let secs = self.fps_window_start.elapsed().as_secs_f32();
                         let fps = self.fps_accum as f32 / secs.max(0.001);
-                        win.set_title(&format!(
-                            "{} — BBC Micro · {fps:.0} fps",
-                            self.title_prefix
-                        ));
+                        win.set_title(&format!("{} — BBC Micro · {fps:.0} fps", self.title_prefix));
                         self.fps_accum = 0;
                         self.fps_window_start = Instant::now();
                     }
