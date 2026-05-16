@@ -29,6 +29,7 @@
 //! ```
 
 pub mod acia6850;
+pub mod audio;
 pub mod bus;
 pub mod crtc;
 pub mod display;

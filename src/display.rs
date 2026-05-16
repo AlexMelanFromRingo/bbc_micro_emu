@@ -87,10 +87,19 @@ pub struct DisplayApp {
     surface: Option<Surface<Rc<Window>, Rc<Window>>>,
     context: Option<Context<Rc<Window>>>,
     title_prefix: String,
+    /// Keeps the cpal stream alive for the lifetime of the window.
+    /// Dropping it (or initialisation failure) silently disables audio.
+    _audio: Option<crate::audio::AudioOutput>,
 }
 
 impl DisplayApp {
     pub fn new(machine: Machine, title: impl Into<String>) -> Self {
+        let audio = crate::audio::AudioOutput::spawn(machine.bus.hardware.sound_handle());
+        if audio.is_none() {
+            eprintln!(
+                "audio: no default output device (or built with --no-default-features); silent"
+            );
+        }
         Self {
             machine,
             fb: Framebuffer::new(),
@@ -99,6 +108,7 @@ impl DisplayApp {
             surface: None,
             context: None,
             title_prefix: title.into(),
+            _audio: audio,
         }
     }
 

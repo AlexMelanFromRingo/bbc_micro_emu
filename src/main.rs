@@ -152,12 +152,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("screenshot saved to {}", path.display());
         if let Some(audio_path) = args.audio_out.as_ref() {
-            machine
+            let mut chip = machine
                 .bus
                 .hardware
                 .sound
-                .dump_wav(audio_path, 22_050, 0.5)?;
-            let aud = machine.bus.hardware.sound.is_audible();
+                .lock()
+                .expect("audio mutex poisoned");
+            chip.dump_wav(audio_path, 22_050, 0.5)?;
+            let aud = chip.is_audible();
             println!(
                 "audio dumped to {}  (audible at end of run: {})",
                 audio_path.display(),

@@ -11,6 +11,7 @@ use crate::system_via::SystemVia;
 use crate::upd7002::UpD7002;
 use crate::user_via::UserVia;
 use crate::video_ula::VideoUla;
+use std::sync::{Arc, Mutex};
 
 #[derive(Default, Clone)]
 pub struct AccessLog {
@@ -29,7 +30,11 @@ pub struct Hardware {
     pub system_via: SystemVia,
     pub user_via: UserVia,
     pub fdc: Fdc8271,
-    pub sound: Sn76489,
+    /// Shared between the CPU-side `write` path (which latches bytes on the
+    /// /SOUND_WE rising edge) and an optional cpal audio thread (which pulls
+    /// PCM via `Sn76489::synthesize`). Holding the mutex is cheap — writes
+    /// fire at most ~1 kHz, the audio callback at ~200 Hz.
+    pub sound: Arc<Mutex<Sn76489>>,
     pub acia: Acia6850,
     pub serial_ula: SerialUla,
     pub adc: UpD7002,
@@ -38,6 +43,11 @@ pub struct Hardware {
 impl Hardware {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Clone of the shared SN76489 handle for the audio thread.
+    pub fn sound_handle(&self) -> Arc<Mutex<Sn76489>> {
+        self.sound.clone()
     }
 
     fn log_idx(dev: SheilaDevice) -> usize {
@@ -97,8 +107,11 @@ impl Hardware {
                 // from 0 to 1 — i.e. the chip was being written and the strobe
                 // was just released).
                 let new_we = self.system_via.ic32 & 0x01 != 0;
-                if !prev_we && new_we {
-                    self.sound.write(self.system_via.sound_latch);
+                if !prev_we
+                    && new_we
+                    && let Ok(mut chip) = self.sound.lock()
+                {
+                    chip.write(self.system_via.sound_latch);
                 }
             }
             SheilaDevice::UserVia => self.user_via.write(addr as u8, value),

@@ -256,7 +256,12 @@ fn elite_sound_chip_is_programmed_during_boot() {
     // Docked screen is up, the SN76489 should have been programmed by the
     // BBC's Sound 0..3 ROM routines (volume command + period bytes via the
     // System VIA / IC32 /SOUND_WE handshake).
-    let snd = &machine.bus.hardware.sound;
+    let mut snd = machine
+        .bus
+        .hardware
+        .sound
+        .lock()
+        .expect("audio mutex poisoned");
     let any_voice_set = (0..3).any(|c| snd.channel_attenuation(c) != 0x0F);
     let any_period_set = (0..3).any(|c| snd.channel_period(c) > 1);
     eprintln!(
@@ -276,12 +281,7 @@ fn elite_sound_chip_is_programmed_during_boot() {
 
     // Dump 0.5 s of synthesised audio so we can listen to it manually.
     let out = std::path::PathBuf::from("/tmp/elite_docked.wav");
-    machine
-        .bus
-        .hardware
-        .sound
-        .dump_wav(&out, 22_050, 0.5)
-        .unwrap();
+    snd.dump_wav(&out, 22_050, 0.5).unwrap();
     eprintln!("audio: {}", out.display());
 }
 
