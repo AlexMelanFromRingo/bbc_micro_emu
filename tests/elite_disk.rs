@@ -211,6 +211,37 @@ fn elite_jsbeeb_run_eltcode_diagnostic() {
 }
 
 #[test]
+#[ignore = "needs roms/* + disks/Elite.ssd — F0 launches Cobra Mk III"]
+fn elite_launch_sequence_renders_3d_viewport() {
+    let mut machine = build_machine();
+    if !mount(&mut machine, "Elite.ssd") {
+        return;
+    }
+    machine.run_for_cycles(12_000_000, u64::MAX).unwrap();
+    machine.type_string("*RUN $.!BOOT\n");
+    machine.run_for_cycles(300_000_000, u64::MAX).unwrap();
+
+    // F0 = Launch from Docked screen on real BBC Elite. Snapshot at
+    // several points during the cobalt-flag → 3D-viewport transition
+    // (the launch tunnel animation takes ~2-3 seconds of CPU time).
+    tap_key(&mut machine, BbcKey::F0);
+    for stage in 0..6 {
+        machine.run_for_cycles(60_000_000, u64::MAX).unwrap();
+        let mut fb = Framebuffer::new();
+        machine.render_into(&mut fb);
+        let p = format!("/tmp/elite_launch_{stage}.ppm");
+        fb.save_ppm(std::path::Path::new(&p)).unwrap();
+        eprintln!(
+            "launch stage {stage}: PC=${:04X}  CR=${:02X}  R12=${:02X} R13=${:02X}  saved {p}",
+            machine.cpu.registers.pc,
+            machine.bus.hardware.video_ula.control,
+            machine.bus.hardware.crtc.reg(12),
+            machine.bus.hardware.crtc.reg(13),
+        );
+    }
+}
+
+#[test]
 #[ignore = "needs roms/* + disks/Elite.ssd"]
 fn elite_sound_chip_is_programmed_during_boot() {
     let mut machine = build_machine();
