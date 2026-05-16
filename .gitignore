@@ -1,0 +1,9 @@
+/target
+.codex
+roms/*.rom
+roms/*.ROM
+disks/*.ssd
+disks/*.dsd
+disks/*.SSD
+tapes/*.uef
+*.ppm

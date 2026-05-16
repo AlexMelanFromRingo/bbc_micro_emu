@@ -1,0 +1,20 @@
+[package]
+name = "bbc_micro_emu"
+version = "0.1.0"
+edition = "2024"
+description = "BBC Micro Model B emulator (Acorn 1981) built on the mos6502_emu CPU core."
+license = "MIT"
+repository = "https://github.com/AlexMelanFromRingo/bbc_micro_emu"
+readme = "README.md"
+keywords = ["bbc-micro", "emulator", "6502", "retro", "acorn"]
+categories = ["emulators"]
+publish = false
+
+[dependencies]
+mos6502_emu = { path = "../mos6502_emu" }
+winit = "0.30"
+softbuffer = "0.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

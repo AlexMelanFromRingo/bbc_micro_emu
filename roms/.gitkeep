@@ -1,0 +1,3 @@
+ROM files (os120.rom, basic2.rom, dfs098.rom) live here.
+They are © Acorn / successor rightholders and are not redistributed.
+Run `scripts/fetch_roms.sh` to populate this directory.
