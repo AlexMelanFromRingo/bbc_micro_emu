@@ -8,13 +8,24 @@ real hardware (datasheets, service manuals, b-em as a cross-check) rather
 than as a shortcut.
 
 ```
-BBC Computer 32K
+                COMMANDER JAMESON
+─────────────────────────────────────────────
+Present System              :Lave
+Hyperspace System           :Lave
+Condition                   :Docked
+Fuel:7.0 Light Years
+Cash:       100.0 Cr
+Legal Status: Clean
+Rating: Harmless
 
-Acorn DFS
+EQUIPMENT:
+     Front Pulse Laser
 
-BASIC
-
->
+         ┌────────────────────────────┐
+         │ ╔══════════════════════╗   │
+         │ ║ Cobra Mk III status  ║   │  ← Elite Docked screen,
+         │ ╚══════════════════════╝   │     loaded from the original
+         └────────────────────────────┘     Acornsoft ELITEBBC.SSD
 ```
 
 ## Status
@@ -33,8 +44,8 @@ BASIC
 | System VIA                       | ✅ IC32 latch with correct power-on state, /VSYNC on CA1, keyboard matrix scan, ADC EOC on CB1 |
 | User VIA                         | ✅ Available for split-screen T2 IRQs (needed by Elite) |
 | Keyboard input                   | ✅ End-to-end: winit → System VIA matrix, plus a `--type` injector that drops bytes straight into MOS keyboard buffer 0 |
-| 8271 FDC                         | ✅ Read Data / Write Data / Read Drive Status / Seek / Specify / Write Special Register; byte streaming over NDDR + NMI with realistic pacing |
-| `.ssd` disk image loading        | ✅ 200 KiB SSD images mounted in drive 0; DFS reads catalogue/sector bytes correctly |
+| 8271 FDC                         | ✅ Read Data / Write Data / Read Drive Status / Seek / Specify / Write Special Register; edge-triggered NMI + 128-cycle inter-byte pacing matches the timing DFS-090's NMI handler needs |
+| `.ssd` disk image loading        | ✅ 200 KiB SSD images, undersized images zero-padded; DFS-090 fully drives the real Acornsoft Elite disc and renders its Docked screen |
 | MOS service-call interception    | ✅ OSWRCH / OSRDCH / OSWORD / OSBYTE fast paths for headless testing |
 | µPD7002 ADC                      | ⚙️ Skeleton with EOC pulse — joystick read works |
 | 6850 ACIA                        | ⚙️ Stub (responds to register reads without wedging the CPU) |
@@ -64,9 +75,16 @@ cargo run --release -- --mos roms/os120.rom --lang 15=roms/basic2.rom \
     --headless 20000000 --type "MODE 0\nPRINT \"HELLO WORLD\"\n" \
     --screenshot /tmp/mode0.ppm
 
-# 4. With DFS ROM and a disk image
+# 4. DFS-090 + Elite — *INFO !BOOT prints the file metadata
 cargo run --release -- --mos roms/os120.rom --lang 15=roms/basic2.rom \
-    --lang 14=roms/dfs098.rom --disk disks/welcomeb.ssd
+    --lang 14=roms/dfs090.rom --disk disks/Elite.ssd \
+    --headless 30000000 --type "*INFO !BOOT\n" --screenshot /tmp/info.ppm
+# → "$.!BOOT    L  001900 001E0F 00058A 157"
+
+# 5. Boot the real Acornsoft Elite to the Docked / Commander Status screen
+cargo run --release -- --mos roms/os120.rom --lang 15=roms/basic2.rom \
+    --lang 14=roms/dfs090.rom --disk disks/Elite.ssd \
+    --headless 320000000 --type "*RUN \$.!BOOT\n" --screenshot /tmp/elite.ppm
 ```
 
 ## Running
@@ -122,8 +140,11 @@ Highlights:
 - `tests/mode4_draw.rs`, `tests/mode7_with_mos_font.rs` — render and count
   non-black pixels in the framebuffer.
 - `tests/dfs_disk.rs` — mounts a synthetic DFS catalogue and exercises the
-  DFS service ROM end-to-end (currently `#[ignore]`: `*CAT` reads the right
-  bytes but the print path still needs work).
+  DFS service ROM end-to-end.
+- `tests/elite_disk.rs` — boots the real Acornsoft Elite `.ssd`, types
+  `*RUN $.!BOOT`, and dumps screenshots through `Framebuffer::save_ppm`.
+  Confirms `*INFO !BOOT` prints the catalogue line and that Elite reaches
+  its Docked / Commander Status screen.
 
 ## Architecture
 
@@ -154,13 +175,20 @@ owns a winit event loop and pumps `run_one_frame` per redraw.
 
 ## Roadmap to Elite
 
-1. **DFS catalogue print** — `*CAT` reads the right sectors via FDC byte
-   streaming today; the remaining gap is in DFS's OSWRCH formatting path.
-2. **Scanline-accurate CRTC** — Elite reprograms `R12/R13` via a User-VIA T2
-   IRQ to split the 3D viewport from the dashboard. The CRTC tick already
-   pulses VSYNC; it needs cycle-accurate mid-frame register sampling.
-3. **Sound** — SN76489 currently swallows writes; needs envelope/tone gen.
-4. **`*RUN` / `OSFILE` polish** so disk-loaded binaries jump in cleanly.
+1. ~~**DFS catalogue parse / file load.**~~ DONE — Acornsoft Elite boots
+   to the Docked / Commander Status screen.
+2. **In-game keyboard.** `Machine::type_string` lands chars in the MOS
+   keyboard buffer for OSRDCH; Elite scans the VIA keyboard matrix
+   directly during gameplay. `SystemVia::set_key` is wired but Elite's
+   main loop doesn't react to taps yet — likely a VSYNC-IRQ pacing
+   issue in our CRTC tick chunking.
+3. **Scanline-accurate CRTC.** Elite reprograms `R12/R13` via a
+   User-VIA T2 IRQ to split the 3D viewport from the dashboard. The
+   CRTC tick already pulses VSYNC and our PPM rendering shows the
+   bottom-half status bar correctly; the upper-half 3D viewport
+   needs cycle-accurate mid-frame register sampling.
+4. **Sound (SN76489).** Currently swallows writes silently. Elite
+   plays laser, explosion, hyperspace and ECM tones.
 
 ## License
 

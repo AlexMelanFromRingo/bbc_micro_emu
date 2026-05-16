@@ -10,7 +10,17 @@
 
 use std::path::PathBuf;
 
+use bbc_micro_emu::system_via::BbcKey;
 use bbc_micro_emu::{Framebuffer, Machine, MachineConfig, MemoryConfig};
+
+/// Briefly hold a real BBC key down so an in-game keyboard scan (Elite
+/// reads PA via System VIA, not OSRDCH) can observe it.
+fn tap_key(machine: &mut Machine, key: BbcKey) {
+    machine.bus.hardware.system_via.set_key(key, true);
+    machine.run_for_cycles(200_000, u64::MAX).unwrap();
+    machine.bus.hardware.system_via.set_key(key, false);
+    machine.run_for_cycles(50_000, u64::MAX).unwrap();
+}
 
 fn dump_mode7(machine: &Machine) {
     let ram = machine.bus.memory.ram();
@@ -196,4 +206,39 @@ fn elite_jsbeeb_exec_load_diagnostic() {
 #[ignore = "needs roms/* + disks/elite_jsbeeb.ssd"]
 fn elite_jsbeeb_run_eltcode_diagnostic() {
     run_with_disk("elite_jsbeeb.ssd", "*RUN EltCode\n", "jsbeeb_eltcode");
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/Elite.ssd — drives the game further into menus"]
+fn elite_play_a_few_keys() {
+    let mut machine = build_machine();
+    if !mount(&mut machine, "Elite.ssd") {
+        return;
+    }
+    machine.run_for_cycles(12_000_000, u64::MAX).unwrap();
+    machine.type_string("*RUN $.!BOOT\n");
+    machine.run_for_cycles(300_000_000, u64::MAX).unwrap();
+
+    // Elite reads the keyboard via direct VIA matrix scan, not via
+    // OSRDCH. Use the real key API: hold each key for ~100 ms then
+    // release, run a chunk of cycles for the menu logic to react, dump
+    // a screenshot. Sequence: Space (continue from Docked screen),
+    // 1 (Launch), 4 (Galactic Chart), 6 (Cobra Mk III), 7 (Inventory).
+    let sequence = [
+        ("after_boot", None),
+        ("after_space", Some(BbcKey::Space)),
+        ("after_1_launch", Some(BbcKey::K1)),
+        ("after_4_chart", Some(BbcKey::K4)),
+    ];
+    for (label, maybe_key) in sequence {
+        if let Some(k) = maybe_key {
+            tap_key(&mut machine, k);
+            machine.run_for_cycles(30_000_000, u64::MAX).unwrap();
+        }
+        let mut fb = Framebuffer::new();
+        machine.render_into(&mut fb);
+        let path = format!("/tmp/elite_play_{label}.ppm");
+        fb.save_ppm(std::path::Path::new(&path)).unwrap();
+        eprintln!("screenshot: {path}  (PC=${:04X})", machine.cpu.registers.pc);
+    }
 }
