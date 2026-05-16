@@ -96,7 +96,16 @@ impl Hardware {
 
         match dev {
             SheilaDevice::Crtc => self.crtc.write(addr, value),
-            SheilaDevice::VideoUla => self.video_ula.write(addr, value),
+            SheilaDevice::VideoUla => {
+                self.video_ula.write(addr, value);
+                // Stamp the new control / palette into the per-scanline
+                // table starting at the current CRTC raster so the renderer
+                // applies the mid-frame mode/palette switch to subsequent
+                // rows. (Elite's User-VIA T2 IRQ fires here to swap MODE 4
+                // viewport ↔ MODE 5 status bar.)
+                let row = self.crtc.scanline_in_frame;
+                self.video_ula.record_mid_frame_change(row);
+            }
             SheilaDevice::SystemVia => {
                 let prev_we = self.system_via.ic32 & 0x01 != 0; // /WE before
                 self.system_via.write(addr as u8, value);

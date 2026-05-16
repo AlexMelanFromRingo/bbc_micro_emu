@@ -225,46 +225,38 @@ impl Renderer {
         let cols = crtc.horizontal_displayed() as usize;
         let rows = crtc.vertical_displayed() as usize;
         let scanlines = crtc.scanlines_per_char_row() as usize;
-        let start = crtc.display_start_crtc_addr();
         let screen_off = ula.screen_size_offset();
-        let ula_mode = (ula.control >> 2) & 3;
-        let high_clock = ula.high_clock();
-        // Per b-em's render loop: HIFREQ (2 MHz CRTC) → 8 c-positions per
-        // byte; LOFREQ → 16 c-positions per byte. Both target a 640-wide
-        // display: 80 chars × 8 px = 640, 40 chars × 16 px = 640.
-        let positions_per_byte: usize = if high_clock { 8 } else { 16 };
         let scale_y = (16 / scanlines.max(1)).max(1);
 
         for row in 0..rows {
-            for col in 0..cols {
-                for line in 0..scanlines {
-                    let ma = start
+            for line in 0..scanlines {
+                // Frame-relative scanline → indexes the per-row mode /
+                // palette / R12:R13 tables. Elite's User-VIA T2 IRQ writes
+                // a different ULA control + new R12 partway down, so the
+                // top viewport renders in MODE 4 (1 bpp) and the bottom
+                // status bar in MODE 5 (2 bpp).
+                let scanline_idx = (row * scanlines + line) as u16;
+                let ula_mode = (ula.control_per_scanline[scanline_idx as usize] >> 2) & 3;
+                let high_clock = ula.high_clock_at(scanline_idx);
+                let positions_per_byte: usize = if high_clock { 8 } else { 16 };
+                // Effective char width may change mid-frame — clip to whatever
+                // the CRTC has displayed. We assume the new CR is consistent
+                // with the new R0/R1 the game programmed; for Elite the only
+                // thing that actually changes is bpp.
+                let row_start = crtc.start_per_scanline[scanline_idx as usize];
+                for col in 0..cols {
+                    let ma = row_start
                         .wrapping_add((row * cols) as u16)
                         .wrapping_add(col as u16);
                     let phys = Crtc6845::bbc_screen_addr(ma, line as u16, screen_off);
                     let byte = ram[phys as usize];
                     for c in 0..positions_per_byte {
-                        // c is the horizontal pixel position within the byte's
-                        // display area (0..7 in HIFREQ, 0..15 in LOFREQ).
-                        // Per b-em `table4bpp[ula_mode][byte][c]`:
-                        //
-                        //   inner_c = c                                  (mode 3)
-                        //   inner_c = c >> 1                             (mode 2)
-                        //   inner_c = c >> 2                             (mode 1)
-                        //   inner_c = c >> 3                             (mode 0)
-                        //
-                        // Within `inner_c`, the byte is left-shifted by that
-                        // amount with 1-fill, then bits 1/3/5/7 form the 4-bit
-                        // logical-colour index.
                         let inner_c = match ula_mode {
                             3 => c,
                             2 => c >> 1,
                             1 => c >> 2,
                             _ => c >> 3,
                         };
-                        // HIFREQ uses positions 0..7 of the byte directly;
-                        // LOFREQ stretches them — inner_c may exceed 7, but
-                        // table[3] is identical for inner_c >= 8.
                         let inner_c = inner_c.min(15);
                         let shifted = if inner_c == 0 {
                             byte
@@ -275,7 +267,7 @@ impl Renderer {
                             | ((shifted >> 5) & 1) << 2
                             | ((shifted >> 3) & 1) << 1
                             | ((shifted >> 1) & 1);
-                        let color = ula.resolve_color(logical);
+                        let color = ula.resolve_color_at(scanline_idx, logical);
                         let x = col * positions_per_byte + c;
                         let y_base = (row * scanlines + line) * scale_y;
                         for dy in 0..scale_y {

@@ -31,9 +31,18 @@ fn make_test_inputs() -> (Crtc6845, VideoUla, Vec<u8>) {
     // (unset pixel).
     ula.control = 0b0000_1100;
     ula.screen_size_code = 0b10;
+    // The renderer now reads ula.control / palette from a per-scanline
+    // snapshot table. In real operation the table is repopulated each
+    // frame from Machine::step_instruction; in unit tests we have to
+    // do it by hand after setting up the direct fields.
+    ula.reset_per_scanline();
 
     let ram = vec![0u8; 0x8000];
     (crtc, ula, ram)
+}
+
+fn refresh_palette(ula: &mut VideoUla) {
+    ula.reset_per_scanline();
 }
 
 #[test]
@@ -68,6 +77,7 @@ fn renderer_draws_a_pixel_when_screen_ram_has_a_bit_set() {
     for i in 8..16 {
         ula.palette[i] = 0x00;
     }
+    refresh_palette(&mut ula);
 
     let mut renderer = Renderer::new();
     let mut fb = Framebuffer::new();

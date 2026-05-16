@@ -324,7 +324,14 @@ impl Machine {
         // display start halfway down the screen for the 3D / HUD split;
         // batching CRTC ticks made the split land on the wrong scanline.
         let dt32 = dt as u32;
-        let _events = self.bus.hardware.crtc.tick(dt32);
+        let events = self.bus.hardware.crtc.tick(dt32);
+        if events.frame_done {
+            // Snapshot the current control / palette into the per-scanline
+            // table so the next frame starts coherent. Mid-frame writes
+            // append from `scanline_in_frame` onward via
+            // `Hardware::write` → `video_ula.record_mid_frame_change`.
+            self.bus.hardware.video_ula.reset_per_scanline();
+        }
         // System VIA CA1 is wired to /VSYNC; mirror the CRTC's vsync_active
         // state — Via6522::set_ca1 handles edge detection per PCR config
         // (MOS sets falling edge).

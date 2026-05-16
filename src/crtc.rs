@@ -37,7 +37,7 @@ pub struct Crtc6845 {
     addr_latch: u8,
     regs: [u8; REG_COUNT],
     /// Current scanline within the frame (0..vertical_total_scanlines).
-    scanline_in_frame: u16,
+    pub scanline_in_frame: u16,
     /// Cycle counter modulo cycles-per-scanline.
     cycle_in_scanline: u16,
     /// Set true on the scanline where VSync starts; cleared once consumed.

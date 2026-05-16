@@ -32,6 +32,12 @@ pub struct VideoUla {
     /// Screen-size code (bits 4-5 of IC32 from System VIA). 0=20K (modes 0-2),
     /// 1=16K (mode 3), 2=10K (modes 4-5), 3=8K (modes 6-7).
     pub screen_size_code: u8,
+    /// Per-scanline snapshot of the control register and palette. Lets the
+    /// renderer pick the active bpp / teletext / clock mode for each row
+    /// — Elite swaps the upper viewport (MODE 4) and lower status bar
+    /// (MODE 5) via a User-VIA T2 IRQ mid-frame.
+    pub control_per_scanline: [u8; 312],
+    pub palette_per_scanline: [[u8; 16]; 312],
 }
 
 impl Default for VideoUla {
@@ -48,6 +54,8 @@ impl VideoUla {
             // matching how MOS programs it after RESET.
             palette: [0; 16],
             screen_size_code: 0,
+            control_per_scanline: [0; 312],
+            palette_per_scanline: [[0; 16]; 312],
         }
     }
 
@@ -60,6 +68,65 @@ impl VideoUla {
                 self.palette[logical as usize] = physical;
             }
         }
+    }
+
+    /// Stamp the current control + palette into the row buffers starting at
+    /// `from` so the renderer picks them up. Called by `Machine` when the
+    /// CPU writes the Video ULA registers; we know the current scanline
+    /// because the CRTC ticks every instruction.
+    pub fn record_mid_frame_change(&mut self, from_scanline: u16) {
+        let from = (from_scanline as usize).min(self.control_per_scanline.len());
+        for slot in &mut self.control_per_scanline[from..] {
+            *slot = self.control;
+        }
+        for slot in &mut self.palette_per_scanline[from..] {
+            *slot = self.palette;
+        }
+    }
+
+    /// Refresh the per-scanline buffers at the start of every frame so the
+    /// next frame starts with a consistent snapshot.
+    pub fn reset_per_scanline(&mut self) {
+        for slot in &mut self.control_per_scanline {
+            *slot = self.control;
+        }
+        for slot in &mut self.palette_per_scanline {
+            *slot = self.palette;
+        }
+    }
+
+    /// Resolve a logical colour index against a snapshot of the palette
+    /// taken at a specific scanline. Mirrors `resolve_color` but reads
+    /// from `palette_per_scanline` rather than the live registers.
+    pub fn resolve_color_at(&self, scanline: u16, logical: u8) -> [u8; 3] {
+        let row = (scanline as usize).min(self.palette_per_scanline.len() - 1);
+        let phys = self.palette_per_scanline[row][(logical & 0x0F) as usize] ^ 0x07;
+        let r = if phys & 0x01 != 0 { 255 } else { 0 };
+        let g = if phys & 0x02 != 0 { 255 } else { 0 };
+        let b = if phys & 0x04 != 0 { 255 } else { 0 };
+        [r, g, b]
+    }
+
+    /// Bits per pixel for a given scanline (uses the recorded snapshot).
+    pub fn bits_per_pixel_at(&self, scanline: u16) -> u8 {
+        let row = (scanline as usize).min(self.control_per_scanline.len() - 1);
+        match (self.control_per_scanline[row] >> 2) & 0x03 {
+            0b00 => 8,
+            0b01 => 4,
+            0b10 => 2,
+            0b11 => 1,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn teletext_mode_at(&self, scanline: u16) -> bool {
+        let row = (scanline as usize).min(self.control_per_scanline.len() - 1);
+        self.control_per_scanline[row] & 0x02 != 0
+    }
+
+    pub fn high_clock_at(&self, scanline: u16) -> bool {
+        let row = (scanline as usize).min(self.control_per_scanline.len() - 1);
+        self.control_per_scanline[row] & 0x10 != 0
     }
 
     pub fn read(&self, _addr: u16) -> u8 {
