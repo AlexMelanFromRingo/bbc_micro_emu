@@ -223,6 +223,114 @@ fn other_game_frogman() {
 }
 
 #[test]
+#[ignore = "needs roms/* + disks/Elite.ssd — try every key looking for launch"]
+fn elite_find_launch_key() {
+    let mut machine = build_machine();
+    if !mount(&mut machine, "Elite.ssd") {
+        return;
+    }
+    machine.run_for_cycles(12_000_000, u64::MAX).unwrap();
+    machine.type_string("*RUN $.!BOOT\n");
+    machine.run_for_cycles(300_000_000, u64::MAX).unwrap();
+
+    let mut fb_baseline = Framebuffer::new();
+    machine.render_into(&mut fb_baseline);
+
+    let candidates: &[(&str, BbcKey)] = &[
+        ("Tab", BbcKey::Tab),
+        ("Return", BbcKey::Return),
+        ("Space", BbcKey::Space),
+        ("Escape", BbcKey::Escape),
+        ("K0", BbcKey::K0),
+        ("K1", BbcKey::K1),
+        ("F0", BbcKey::F0),
+        ("F9", BbcKey::F9),
+        ("Slash", BbcKey::Slash),
+    ];
+
+    for (label, key) in candidates {
+        machine.bus.hardware.system_via.set_key(*key, true);
+        machine.run_for_cycles(1_500_000, u64::MAX).unwrap();
+        machine.bus.hardware.system_via.set_key(*key, false);
+        machine.run_for_cycles(15_000_000, u64::MAX).unwrap();
+        let mut fb = Framebuffer::new();
+        machine.render_into(&mut fb);
+        let diff = fb
+            .pixels
+            .iter()
+            .zip(fb_baseline.pixels.iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        let p = format!(
+            "/tmp/elite_after_{}.ppm",
+            label.to_lowercase().replace(['/', '!'], "_")
+        );
+        fb.save_ppm(std::path::Path::new(&p)).unwrap();
+        eprintln!(
+            "after {label:>8}: PC=${:04X}  CR=${:02X}  pixel-diff vs baseline = {diff}  → {p}",
+            machine.cpu.registers.pc, machine.bus.hardware.video_ula.control,
+        );
+    }
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/Elite.ssd — investigate what blocks the launch"]
+fn elite_launch_pc_histogram() {
+    let mut machine = build_machine();
+    if !mount(&mut machine, "Elite.ssd") {
+        return;
+    }
+    machine.run_for_cycles(12_000_000, u64::MAX).unwrap();
+    machine.type_string("*RUN $.!BOOT\n");
+    machine.run_for_cycles(300_000_000, u64::MAX).unwrap();
+    eprintln!(
+        "=== AT DOCKED SCREEN ===  PC=${:04X}",
+        machine.cpu.registers.pc
+    );
+
+    // Hold F0 for a full 2 seconds (4M cycles) — much longer than tap_key —
+    // to give Elite multiple per-frame keyboard scans to definitively
+    // observe a press → release transition.
+    machine.bus.hardware.system_via.set_key(BbcKey::F0, true);
+    machine.run_for_cycles(4_000_000, u64::MAX).unwrap();
+    machine.bus.hardware.system_via.set_key(BbcKey::F0, false);
+    eprintln!("=== F0 RELEASED ===  PC=${:04X}", machine.cpu.registers.pc);
+
+    // Run for 5 sec of CPU time and build a PC histogram so we can see
+    // where Elite is spinning.
+    use std::collections::HashMap;
+    let mut hist: HashMap<u16, u32> = HashMap::new();
+    for _ in 0..1000 {
+        machine.run_for_cycles(10_000, u64::MAX).unwrap();
+        *hist.entry(machine.cpu.registers.pc).or_insert(0) += 1;
+    }
+    let mut top: Vec<_> = hist.into_iter().collect();
+    top.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    eprintln!("Top PCs (5s after F0):");
+    for (pc, n) in top.iter().take(15) {
+        let bank = machine.bus.memory.selected_bank();
+        eprintln!("  ${pc:04X}  {n:>4}  bank={bank}");
+    }
+    let mut fb = Framebuffer::new();
+    machine.render_into(&mut fb);
+    fb.save_ppm(std::path::Path::new("/tmp/elite_post_long_f0.ppm"))
+        .unwrap();
+    eprintln!(
+        "final PC=${:04X}  CR=${:02X}",
+        machine.cpu.registers.pc, machine.bus.hardware.video_ula.control,
+    );
+    let ram = machine.bus.memory.ram();
+    eprintln!(
+        "non-zero bytes in MODE 4/5 viewport ($5800..$7FFF) = {}",
+        ram[0x5800..0x8000].iter().filter(|&&b| b != 0).count()
+    );
+    eprintln!(
+        "non-zero bytes in MODE 0/1 viewport ($3000..$8000) = {}",
+        ram[0x3000..0x8000].iter().filter(|&&b| b != 0).count()
+    );
+}
+
+#[test]
 #[ignore = "needs roms/* + disks/Elite.ssd — Elite in deep space"]
 fn elite_in_flight_long_capture() {
     let mut machine = build_machine();
