@@ -381,8 +381,14 @@ impl Fdc8271 {
                 bytes_left = bytes_left.saturating_sub(1);
                 // Status during byte transfer: BUSY + NDDR + INTERRUPT (no
                 // RESULT_FULL — that comes only with the final completion).
+                // NMI is edge-triggered on the rising edge of INT; only
+                // pulse it if INT was 0 before. Otherwise the CPU sees a
+                // run of spurious NMIs and nests them onto the stack.
+                let was_int = self.status & status::INTERRUPT != 0;
                 self.status = status::BUSY | status::NDDR | status::INTERRUPT;
-                self.nmi_pending = true;
+                if !was_int {
+                    self.nmi_pending = true;
+                }
                 if bytes_left == 0 {
                     // Sector finished. Move to next sector or schedule the
                     // command-completion NMI after a short delay (matches
@@ -412,7 +418,7 @@ impl Fdc8271 {
                         offset,
                         sectors_left,
                     };
-                    self.delay = 64;
+                    self.delay = 128;
                 }
             }
             Phase::Writing {
@@ -432,8 +438,11 @@ impl Fdc8271 {
                 if bytes_left == SECTOR_SIZE as u32 {
                     // Brand-new sector: request the very first byte. Don't
                     // consume self.data yet — the CPU hasn't written it.
+                    let was_int = self.status & status::INTERRUPT != 0;
                     self.status = status::BUSY | status::NDDR | status::INTERRUPT;
-                    self.nmi_pending = true;
+                    if !was_int {
+                        self.nmi_pending = true;
+                    }
                     self.phase = Phase::Writing {
                         track,
                         sector,
@@ -443,7 +452,7 @@ impl Fdc8271 {
                         sectors_left,
                         buffer: buf,
                     };
-                    self.delay = 64;
+                    self.delay = 128;
                 } else {
                     // Consume the byte the CPU just deposited.
                     buf.push(self.data);
@@ -472,8 +481,11 @@ impl Fdc8271 {
                         }
                     } else {
                         // More bytes still needed in this sector.
+                        let was_int = self.status & status::INTERRUPT != 0;
                         self.status = status::BUSY | status::NDDR | status::INTERRUPT;
-                        self.nmi_pending = true;
+                        if !was_int {
+                            self.nmi_pending = true;
+                        }
                         self.phase = Phase::Writing {
                             track,
                             sector,
@@ -483,7 +495,7 @@ impl Fdc8271 {
                             sectors_left,
                             buffer: buf,
                         };
-                        self.delay = 64;
+                        self.delay = 128;
                     }
                 }
             }
@@ -496,8 +508,11 @@ impl Fdc8271 {
 
     fn complete_with(&mut self, code: u8) {
         self.result = code;
+        let was_int = self.status & status::INTERRUPT != 0;
         self.status = status::RESULT_FULL | status::INTERRUPT;
-        self.nmi_pending = true;
+        if !was_int {
+            self.nmi_pending = true;
+        }
         self.phase = Phase::Complete;
         self.delay = 0;
     }
@@ -941,7 +956,7 @@ mod tests {
         assert_eq!(fdc.read(4), 5);
         // Next byte follows after the inter-byte delay (64 cycles between
         // bytes within a sector).
-        fdc.tick(100);
+        fdc.tick(150);
         assert!(fdc.poll_nmi_edge());
         assert_eq!(fdc.read(4), 3);
     }

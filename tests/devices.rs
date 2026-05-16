@@ -121,7 +121,7 @@ fn fdc_read_data_returns_pattern_bytes() {
     let byte0 = fdc.read(4);
     // pattern: (7*17 + 5*3 + 0) & 0xFF = (119 + 15) & 0xFF = 134
     assert_eq!(byte0, ((7 * 17 + 5 * 3) & 0xFF) as u8);
-    fdc.tick(100);
+    fdc.tick(150);
     assert!(fdc.poll_nmi_edge());
     let byte1 = fdc.read(4);
     assert_eq!(byte1, ((7 * 17 + 5 * 3 + 1) & 0xFF) as u8);

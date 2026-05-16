@@ -245,7 +245,17 @@ impl Machine {
                     && pc == addr
                 {
                     let bank = self.bus.memory.selected_bank();
-                    eprintln!("PC hit ${pc:04X} bank={bank}");
+                    let sp = self.cpu.registers.sp;
+                    use mos6502_emu::MemoryView;
+                    let mut s = String::new();
+                    for i in 1u16..=16 {
+                        let a = 0x0100 | (sp.wrapping_add(i as u8) as u16);
+                        s.push_str(&format!(" {:02X}", self.bus.peek(a)));
+                    }
+                    eprintln!(
+                        "PC hit ${pc:04X} bank={bank} A=${:02X} X=${:02X} Y=${:02X} SP=${sp:02X} stack[+1..+16]={s}",
+                        self.cpu.registers.a, self.cpu.registers.x, self.cpu.registers.y,
+                    );
                 }
             }
         }
