@@ -249,6 +249,19 @@ impl Machine {
                 }
             }
         }
+        // Env-gated BRK-source trace: logs every $00 opcode (BRK) the CPU
+        // is about to execute, with the bank it's executing from.
+        if std::env::var("BBC_BRK_TRACE").is_ok() {
+            let pc = self.cpu.registers.pc;
+            // Read directly through MemoryView::peek so we don't trigger
+            // side effects on SHEILA.
+            use mos6502_emu::MemoryView;
+            let op = self.bus.peek(pc);
+            if op == 0 {
+                let bank = self.bus.memory.selected_bank();
+                eprintln!("BRK at ${pc:04X} bank={bank}");
+            }
+        }
         self.cpu.set_irq_line(self.bus.hardware.poll_irq());
         if self.bus.hardware.poll_nmi_edge() {
             self.cpu.request_nmi();

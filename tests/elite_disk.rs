@@ -182,6 +182,8 @@ fn elite_help_then_info_diagnostic() {
     // Dump MOS extended-vector page ($0200..$0300) for diagnostic.
     eprintln!("$0200-$0240: {:02X?}", &ram[0x0200..0x0240]);
     eprintln!("$0380-$0390: {:02X?}", &ram[0x0380..0x0390]);
+    eprintln!("$2600-$2620: {:02X?}", &ram[0x2600..0x2620]);
+    eprintln!("$25F0-$2610: {:02X?}", &ram[0x25F0..0x2610]);
 }
 
 #[test]
