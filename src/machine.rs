@@ -106,6 +106,34 @@ impl Machine {
         self.typed_chars.push_back(b);
     }
 
+    /// Set the µPD7002 joystick axis for `channel` (0..=3).
+    /// `value` is signed -32768..32767; the ADC reports its unsigned 10/12-bit
+    /// equivalent. Convention used by Elite + most BBC games:
+    ///   channel 0 = joystick 1 X-axis (left → negative, right → positive)
+    ///   channel 1 = joystick 1 Y-axis (up   → negative, down  → positive)
+    ///   channel 2 = joystick 2 X-axis
+    ///   channel 3 = joystick 2 Y-axis
+    pub fn set_joystick_axis(&mut self, channel: usize, value: i16) {
+        self.bus.hardware.adc.set_input(channel, value);
+    }
+
+    /// Fire-button state for joystick 1 (button 0) / joystick 2 (button 1).
+    /// Wired to the System VIA's PB4 / PB5 inputs on a real BBC; we drive
+    /// the matching bits in the VIA's IRB latch.
+    pub fn set_joystick_button(&mut self, button: usize, pressed: bool) {
+        let bit = match button {
+            0 => 0x10,
+            1 => 0x20,
+            _ => return,
+        };
+        let v = &mut self.bus.hardware.system_via.via.irb;
+        if pressed {
+            *v &= !bit; // active-low button line
+        } else {
+            *v |= bit;
+        }
+    }
+
     /// True if there are still queued characters waiting to be consumed.
     pub fn has_typed_chars(&self) -> bool {
         !self.typed_chars.is_empty()
