@@ -125,13 +125,17 @@ impl Drive {
         if track >= TRACKS_PER_DISK || sector >= SECTORS_PER_TRACK {
             return None;
         }
-        let per_side = SSD_SIZE;
-        let side_off = if self.double_sided {
-            side * per_side
+        // Standard BBC double-sided format is track-interleaved:
+        //   track 0 side 0 (10 sectors) → track 0 side 1 (10 sectors) →
+        //   track 1 side 0 → track 1 side 1 → … track 79 side 1.
+        // Single-sided (SSD) is just track 0..79 of side 0 in order.
+        let track_pair_bytes = SECTORS_PER_TRACK * SECTOR_SIZE;
+        if self.double_sided {
+            let track_base = track * track_pair_bytes * 2 + side * track_pair_bytes;
+            Some(track_base + sector * SECTOR_SIZE)
         } else {
-            0
-        };
-        Some(side_off + (track * SECTORS_PER_TRACK + sector) * SECTOR_SIZE)
+            Some((track * SECTORS_PER_TRACK + sector) * SECTOR_SIZE)
+        }
     }
 
     fn read_sector(&self, side: u8, track: u8, sector: u8) -> Option<&[u8]> {

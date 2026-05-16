@@ -223,6 +223,48 @@ fn other_game_frogman() {
 }
 
 #[test]
+#[ignore = "needs roms/* + disks/Elite.ssd — Elite in deep space"]
+fn elite_in_flight_long_capture() {
+    let mut machine = build_machine();
+    if !mount(&mut machine, "Elite.ssd") {
+        return;
+    }
+    machine.run_for_cycles(12_000_000, u64::MAX).unwrap();
+    machine.type_string("*RUN $.!BOOT\n");
+    machine.run_for_cycles(300_000_000, u64::MAX).unwrap();
+    tap_key(&mut machine, BbcKey::F0);
+
+    // Snapshot every ~0.5s of CPU time for the next ~10s and keep the
+    // frame with the most non-black pixels (a heuristic for "Cobra is
+    // actually showing 3D content in the viewport"). Throttle up
+    // periodically too.
+    let mut best_count = 0usize;
+    let mut best_pc = 0u16;
+    let mut best_cr = 0u8;
+    for round in 0..20 {
+        if round % 3 == 1 {
+            tap_key(&mut machine, BbcKey::KeyS);
+        }
+        machine.run_for_cycles(20_000_000, u64::MAX).unwrap();
+        let mut fb = Framebuffer::new();
+        machine.render_into(&mut fb);
+        let count = fb.pixels.iter().filter(|p| **p != 0).count();
+        let path = format!("/tmp/elite_flight_{round:02}.ppm");
+        fb.save_ppm(std::path::Path::new(&path)).unwrap();
+        if count > best_count {
+            best_count = count;
+            best_pc = machine.cpu.registers.pc;
+            best_cr = machine.bus.hardware.video_ula.control;
+        }
+        eprintln!(
+            "round {round:2}: PC=${:04X} CR=${:02X} pixels={count}",
+            machine.cpu.registers.pc, machine.bus.hardware.video_ula.control,
+        );
+    }
+    eprintln!("best frame: pixels={best_count} PC=${best_pc:04X} CR=${best_cr:02X}");
+}
+
+#[test]
 #[ignore = "needs roms/* + disks/Elite.ssd — F0 launches Cobra Mk III"]
 fn elite_launch_sequence_renders_3d_viewport() {
     let mut machine = build_machine();
