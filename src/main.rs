@@ -19,6 +19,8 @@ fn print_usage() {
            --disk PATH               load .ssd disk image (8271 FDC; needs DFS ROM to be useful)\n\
            --type STRING             after the warm-up boot, type STRING into MOS\n\
                                      (newlines = CR; goes through OSRDCH passthrough)\n\
+           --audio-out PATH          dump 0.5 s of SN76489 audio at the end of\n\
+                                     a headless run as 22.05 kHz mono WAV\n\
            -h, --help                this help"
     );
 }
@@ -32,6 +34,7 @@ struct Args {
     warmup_cycles: u64,
     disk: Option<PathBuf>,
     type_str: Option<String>,
+    audio_out: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -64,6 +67,11 @@ fn parse_args() -> Result<Args, String> {
             }
             "--type" => {
                 args.type_str = Some(iter.next().ok_or("--type needs a string")?);
+            }
+            "--audio-out" => {
+                args.audio_out = Some(PathBuf::from(
+                    iter.next().ok_or("--audio-out needs a path")?,
+                ));
             }
             "-h" | "--help" => {
                 print_usage();
@@ -143,6 +151,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             machine.bus.hardware.video_ula.teletext_mode(),
         );
         println!("screenshot saved to {}", path.display());
+        if let Some(audio_path) = args.audio_out.as_ref() {
+            machine
+                .bus
+                .hardware
+                .sound
+                .dump_wav(audio_path, 22_050, 0.5)?;
+            let aud = machine.bus.hardware.sound.is_audible();
+            println!(
+                "audio dumped to {}  (audible at end of run: {})",
+                audio_path.display(),
+                aud
+            );
+        }
         return Ok(());
     }
 

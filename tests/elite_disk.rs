@@ -211,6 +211,50 @@ fn elite_jsbeeb_run_eltcode_diagnostic() {
 }
 
 #[test]
+#[ignore = "needs roms/* + disks/Elite.ssd"]
+fn elite_sound_chip_is_programmed_during_boot() {
+    let mut machine = build_machine();
+    if !mount(&mut machine, "Elite.ssd") {
+        return;
+    }
+    machine.run_for_cycles(12_000_000, u64::MAX).unwrap();
+    machine.type_string("*RUN $.!BOOT\n");
+    machine.run_for_cycles(300_000_000, u64::MAX).unwrap();
+
+    // Elite plays a brief docking beep / theme during boot. By the time the
+    // Docked screen is up, the SN76489 should have been programmed by the
+    // BBC's Sound 0..3 ROM routines (volume command + period bytes via the
+    // System VIA / IC32 /SOUND_WE handshake).
+    let snd = &machine.bus.hardware.sound;
+    let any_voice_set = (0..3).any(|c| snd.channel_attenuation(c) != 0x0F);
+    let any_period_set = (0..3).any(|c| snd.channel_period(c) > 1);
+    eprintln!(
+        "ch0={:>2} ch1={:>2} ch2={:>2} noise={:>2}  periods: {} {} {}",
+        snd.channel_attenuation(0),
+        snd.channel_attenuation(1),
+        snd.channel_attenuation(2),
+        snd.channel_attenuation(3),
+        snd.channel_period(0),
+        snd.channel_period(1),
+        snd.channel_period(2),
+    );
+    assert!(
+        any_voice_set || any_period_set,
+        "expected Elite's boot/docking sound to leave SN76489 programmed"
+    );
+
+    // Dump 0.5 s of synthesised audio so we can listen to it manually.
+    let out = std::path::PathBuf::from("/tmp/elite_docked.wav");
+    machine
+        .bus
+        .hardware
+        .sound
+        .dump_wav(&out, 22_050, 0.5)
+        .unwrap();
+    eprintln!("audio: {}", out.display());
+}
+
+#[test]
 #[ignore = "needs roms/* + disks/Elite.ssd — drives the game further into menus"]
 fn elite_play_a_few_keys() {
     let mut machine = build_machine();

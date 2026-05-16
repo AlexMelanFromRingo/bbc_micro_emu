@@ -179,6 +179,49 @@ impl Sn76489 {
     pub fn channel_attenuation(&self, ch: usize) -> u8 {
         self.channels[ch].attenuation
     }
+
+    /// True if any tone channel currently has non-silent attenuation
+    /// AND a non-trivial period (i.e. the chip is actively producing
+    /// audible output, not just sitting at power-on defaults).
+    pub fn is_audible(&self) -> bool {
+        self.channels
+            .iter()
+            .any(|c| c.attenuation < 0x0F && c.period > 1)
+    }
+
+    /// Write 16-bit signed mono PCM as a WAV file. Convenience for headless
+    /// tests / `--audio-out` CLI mode. `sample_rate` is typically 44_100 or
+    /// 22_050; `seconds` is the duration to synthesise from the chip's
+    /// current state.
+    pub fn dump_wav(
+        &mut self,
+        path: &std::path::Path,
+        sample_rate: u32,
+        seconds: f32,
+    ) -> std::io::Result<()> {
+        use std::io::Write;
+        let n_samples = (sample_rate as f32 * seconds) as usize;
+        let pcm = self.synthesize(sample_rate, n_samples);
+        let data_size = (pcm.len() * 2) as u32;
+        let mut f = std::fs::File::create(path)?;
+        // RIFF / WAVE header — mono, 16-bit PCM.
+        f.write_all(b"RIFF")?;
+        f.write_all(&(36 + data_size).to_le_bytes())?;
+        f.write_all(b"WAVEfmt ")?;
+        f.write_all(&16u32.to_le_bytes())?; // fmt chunk size
+        f.write_all(&1u16.to_le_bytes())?; // PCM
+        f.write_all(&1u16.to_le_bytes())?; // mono
+        f.write_all(&sample_rate.to_le_bytes())?;
+        f.write_all(&(sample_rate * 2).to_le_bytes())?; // byte rate
+        f.write_all(&2u16.to_le_bytes())?; // block align
+        f.write_all(&16u16.to_le_bytes())?; // bits per sample
+        f.write_all(b"data")?;
+        f.write_all(&data_size.to_le_bytes())?;
+        for s in pcm {
+            f.write_all(&s.to_le_bytes())?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
