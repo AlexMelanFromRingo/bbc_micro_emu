@@ -68,7 +68,7 @@ impl Display for FdcError {
         match self {
             Self::BadImageSize { actual } => write!(
                 f,
-                "disk image must be {SSD_SIZE} or {DSD_SIZE} bytes (SSD/DSD); got {actual}"
+                "disk image must be <= {SSD_SIZE} (SSD) or exactly {DSD_SIZE} (DSD) bytes; got {actual}"
             ),
             Self::SeekOutOfRange { track } => write!(f, "seek to invalid track {track}"),
         }
@@ -251,13 +251,18 @@ impl Fdc8271 {
             return Err(FdcError::SeekOutOfRange { track: drive as u8 });
         }
         match bytes.len() {
-            SSD_SIZE => {
-                self.drives[drive].image = Some(bytes);
-                self.drives[drive].double_sided = false;
-            }
             DSD_SIZE => {
                 self.drives[drive].image = Some(bytes);
                 self.drives[drive].double_sided = true;
+            }
+            // Real DFS images can be short — only sectors that contain data
+            // are stored. Pad up to a full 80-track SSD so out-of-range reads
+            // return $00 rather than panicking; mark single-sided.
+            n if n <= SSD_SIZE => {
+                let mut padded = bytes;
+                padded.resize(SSD_SIZE, 0);
+                self.drives[drive].image = Some(padded);
+                self.drives[drive].double_sided = false;
             }
             other => return Err(FdcError::BadImageSize { actual: other }),
         }
@@ -839,11 +844,24 @@ mod tests {
     }
 
     #[test]
-    fn bad_image_size_is_rejected() {
+    fn oversized_image_is_rejected() {
         let mut fdc = Fdc8271::new();
-        let err = fdc.load_image(0, vec![0u8; 12345]).unwrap_err();
+        // Anything larger than SSD but not exactly DSD must be refused.
+        let err = fdc.load_image(0, vec![0u8; SSD_SIZE + 1]).unwrap_err();
         let msg = format!("{err}");
-        assert!(msg.contains("12345"));
+        assert!(msg.contains(&format!("{}", SSD_SIZE + 1)));
+    }
+
+    #[test]
+    fn undersized_image_is_padded_and_loads_single_sided() {
+        let mut fdc = Fdc8271::new();
+        // Real DFS images can be shorter than 200 KiB if trailing tracks are
+        // empty; we accept them and zero-pad up to the full SSD size.
+        fdc.load_image(0, vec![0xAAu8; 12345]).unwrap();
+        assert!(fdc.has_disk());
+        // First few bytes are still 0xAA, the tail is the 0-padding.
+        let head = fdc.drives[0].read_sector(0, 0, 0).unwrap();
+        assert_eq!(head[0], 0xAA);
     }
 
     #[test]
