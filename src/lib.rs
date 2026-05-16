@@ -43,6 +43,7 @@ pub mod sheila;
 pub mod sn76489;
 pub mod snapshot;
 pub mod system_via;
+pub mod tube;
 pub mod upd7002;
 pub mod user_via;
 pub mod via6522;

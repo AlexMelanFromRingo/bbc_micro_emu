@@ -8,6 +8,7 @@ use crate::fdc8271::Fdc8271;
 use crate::sheila::SheilaDevice;
 use crate::sn76489::Sn76489;
 use crate::system_via::SystemVia;
+use crate::tube::Tube;
 use crate::upd7002::UpD7002;
 use crate::user_via::UserVia;
 use crate::video_ula::VideoUla;
@@ -38,6 +39,7 @@ pub struct Hardware {
     pub acia: Acia6850,
     pub serial_ula: SerialUla,
     pub adc: UpD7002,
+    pub tube: Tube,
 }
 
 impl Hardware {
@@ -80,9 +82,7 @@ impl Hardware {
             SheilaDevice::Acia => self.acia.read(addr as u8),
             SheilaDevice::SerialUla => 0xFF, // write-only on real hardware
             SheilaDevice::Adc => self.adc.read(addr as u8),
-            // Tube co-processor not present — return 0 so MOS / DFS see all
-            // FIFO/status bits clear and don't sit in a Tube-data-ready loop.
-            SheilaDevice::Tube => 0x00,
+            SheilaDevice::Tube => self.tube.host_read(addr as u8),
             _ => 0xFF,
         }
     }
@@ -128,6 +128,7 @@ impl Hardware {
             SheilaDevice::Acia => self.acia.write(addr as u8, value),
             SheilaDevice::SerialUla => self.serial_ula.write(value),
             SheilaDevice::Adc => self.adc.write(addr as u8, value),
+            SheilaDevice::Tube => self.tube.host_write(addr as u8, value),
             SheilaDevice::RomSelect => return Some(RomSelectWrite { bank: value & 0x0F }),
             _ => {}
         }
