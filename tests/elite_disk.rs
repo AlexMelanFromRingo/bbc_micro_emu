@@ -211,6 +211,18 @@ fn elite_jsbeeb_run_eltcode_diagnostic() {
 }
 
 #[test]
+#[ignore = "needs roms/* + disks/Welcome.ssd — Acornsoft Welcome tape"]
+fn other_game_welcome_disc() {
+    run_with_disk("Welcome.ssd", "*EXEC content\n", "welcome");
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/frogman.ssd"]
+fn other_game_frogman() {
+    run_with_disk("frogman.ssd", "*EXEC !Boot\n", "frogman");
+}
+
+#[test]
 #[ignore = "needs roms/* + disks/Elite.ssd — F0 launches Cobra Mk III"]
 fn elite_launch_sequence_renders_3d_viewport() {
     let mut machine = build_machine();
