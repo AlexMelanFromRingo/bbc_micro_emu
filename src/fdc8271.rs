@@ -547,6 +547,15 @@ impl Fdc8271 {
     }
 
     fn execute_command(&mut self) {
+        if std::env::var("FDC_TRACE").is_ok() {
+            eprintln!(
+                "FDC cmd=${:02X} params={:02X?} drive={} track={}",
+                self.command,
+                &self.params[..self.paramreq as usize],
+                self.cur_drive,
+                self.drives[self.cur_drive].track
+            );
+        }
         match self.command {
             0x2C => self.cmd_read_drive_status(),
             0x29 => self.cmd_seek(),
