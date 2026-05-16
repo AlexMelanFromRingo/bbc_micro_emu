@@ -176,9 +176,12 @@ fn elite_help_then_info_diagnostic() {
     for region_start in [0x3000usize, 0x5800, 0x6000] {
         let region = &ram[region_start..0x8000];
         if region.windows(5).any(|w| w == b"!BOOT") {
-            eprintln!("found !BOOT text in ${:04X}..", region_start);
+            eprintln!("found !BOOT text in ${region_start:04X}..");
         }
     }
+    // Dump MOS extended-vector page ($0200..$0300) for diagnostic.
+    eprintln!("$0200-$0240: {:02X?}", &ram[0x0200..0x0240]);
+    eprintln!("$0380-$0390: {:02X?}", &ram[0x0380..0x0390]);
 }
 
 #[test]

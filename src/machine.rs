@@ -231,6 +231,24 @@ impl Machine {
     }
 
     pub fn step_instruction(&mut self) -> Result<u64, MachineError> {
+        // Publish the about-to-execute PC for env-gated bus tracers.
+        crate::bus::LAST_PC.with(|c| c.set(self.cpu.registers.pc));
+        // Env-gated PC hit-counter — set BBC_PC_HIT=$XXXX[,$YYYY] to log
+        // every time the CPU lands on one of those addresses (paged-ROM
+        // bank in context). Useful for "did we reach the cleanup
+        // routine?" diagnostics without a full trace.
+        if let Ok(spec) = std::env::var("BBC_PC_HIT") {
+            let pc = self.cpu.registers.pc;
+            for part in spec.split(',') {
+                let t = part.trim().trim_start_matches('$');
+                if let Ok(addr) = u16::from_str_radix(t, 16)
+                    && pc == addr
+                {
+                    let bank = self.bus.memory.selected_bank();
+                    eprintln!("PC hit ${pc:04X} bank={bank}");
+                }
+            }
+        }
         self.cpu.set_irq_line(self.bus.hardware.poll_irq());
         if self.bus.hardware.poll_nmi_edge() {
             self.cpu.request_nmi();

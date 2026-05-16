@@ -1,9 +1,18 @@
 //! Address-space dispatcher implementing `mos6502_emu::Bus`.
 
+use std::cell::Cell;
+
 use mos6502_emu::{Bus, MemoryView};
 
 use crate::hardware::Hardware;
 use crate::memory::Memory;
+
+thread_local! {
+    /// Most-recent CPU PC, set by `Machine::step_instruction` so the
+    /// env-gated bus write-tracer can attribute writes to a code location.
+    /// Not on the hot path — only read inside the BBC_WRITE_TRACE branch.
+    pub static LAST_PC: Cell<u16> = const { Cell::new(0) };
+}
 
 pub struct BbcBus {
     pub memory: Memory,
@@ -42,6 +51,27 @@ impl Bus for BbcBus {
     }
 
     fn write(&mut self, addr: u16, value: u8) {
+        if let Ok(spec) = std::env::var("BBC_WRITE_TRACE") {
+            // Spec format: hex address ranges separated by commas, e.g.
+            // "10C9" or "1063-106F,10C9". Logs the bank for paged-ROM
+            // context; PC isn't available here so use FDC_TRACE for that.
+            for part in spec.split(',') {
+                let (lo, hi) = if let Some((a, b)) = part.split_once('-') {
+                    (
+                        u16::from_str_radix(a.trim(), 16).unwrap_or(0),
+                        u16::from_str_radix(b.trim(), 16).unwrap_or(0),
+                    )
+                } else {
+                    let a = u16::from_str_radix(part.trim(), 16).unwrap_or(0);
+                    (a, a)
+                };
+                if addr >= lo && addr <= hi {
+                    let pc = LAST_PC.with(|c| c.get());
+                    let bank = self.memory.selected_bank();
+                    eprintln!("RAM W ${addr:04X}=${value:02X}  PC=${pc:04X} bank={bank}");
+                }
+            }
+        }
         match addr {
             0x0000..=0xFBFF => self.memory.write(addr, value),
             0xFC00..=0xFCFF => {}

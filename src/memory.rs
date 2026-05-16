@@ -176,8 +176,15 @@ impl Memory {
 
         let initial_bank = config.initial_bank & 0x0F;
 
+        // Real BBC DRAM is undefined at power-on; jsbeeb (and most
+        // emulators) initialise it to $FF, matching what unpowered DRAM
+        // settles to after a long power-off. DFS-090 relies on this:
+        // `$83E1`'s stack-manipulation RTS lands at `$0384` and expects
+        // whatever's there to act as a no-op trampoline, which $FF $FF $FF
+        // (= ISC $FFFF,X) effectively is for our purposes — `$00` (BRK)
+        // would fault into the error handler.
         Ok(Self {
-            ram: Box::new([0u8; RAM_SIZE]),
+            ram: Box::new([0xFFu8; RAM_SIZE]),
             mos,
             banks,
             selected_bank: initial_bank,
