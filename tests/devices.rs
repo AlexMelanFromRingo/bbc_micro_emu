@@ -116,12 +116,12 @@ fn fdc_read_data_returns_pattern_bytes() {
     fdc.write(1, 7);
     fdc.write(1, 5);
     fdc.write(1, 1);
-    fdc.tick(300);
+    fdc.tick(8500); // head settle / sector search
     assert!(fdc.poll_nmi_edge());
     let byte0 = fdc.read(4);
     // pattern: (7*17 + 5*3 + 0) & 0xFF = (119 + 15) & 0xFF = 134
     assert_eq!(byte0, ((7 * 17 + 5 * 3) & 0xFF) as u8);
-    fdc.tick(50);
+    fdc.tick(100);
     assert!(fdc.poll_nmi_edge());
     let byte1 = fdc.read(4);
     assert_eq!(byte1, ((7 * 17 + 5 * 3 + 1) & 0xFF) as u8);

@@ -38,7 +38,7 @@ fn build_machine() -> Machine {
         initial_bank: 15,
         ..MemoryConfig::default()
     };
-    mem.rom_banks[14] = Some(root.join("roms/dfs098.rom"));
+    mem.rom_banks[14] = Some(root.join("roms/dfs090.rom"));
     mem.rom_banks[15] = Some(root.join("roms/basic2.rom"));
     Machine::new(MachineConfig { memory: mem }).unwrap()
 }
@@ -118,6 +118,18 @@ fn run_with_disk(disk_name: &str, command: &str, label: &str) {
 #[ignore = "needs roms/* + disks/Elite.ssd (Acornsoft original)"]
 fn elite_acornsoft_run_boot_diagnostic() {
     run_with_disk("Elite.ssd", "*RUN !BOOT\n", "acornsoft");
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/Elite.ssd; just looks the file up in catalog"]
+fn elite_info_diagnostic() {
+    run_with_disk("Elite.ssd", "*INFO !BOOT\n", "acornsoft_info");
+}
+
+#[test]
+#[ignore = "needs roms/* + disks/Elite.ssd; prints the catalogue"]
+fn elite_cat_diagnostic() {
+    run_with_disk("Elite.ssd", "*CAT\n", "acornsoft_cat");
 }
 
 #[test]

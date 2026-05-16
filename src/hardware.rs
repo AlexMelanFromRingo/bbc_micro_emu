@@ -70,6 +70,9 @@ impl Hardware {
             SheilaDevice::Acia => self.acia.read(addr as u8),
             SheilaDevice::SerialUla => 0xFF, // write-only on real hardware
             SheilaDevice::Adc => self.adc.read(addr as u8),
+            // Tube co-processor not present — return 0 so MOS / DFS see all
+            // FIFO/status bits clear and don't sit in a Tube-data-ready loop.
+            SheilaDevice::Tube => 0x00,
             _ => 0xFF,
         }
     }

@@ -204,16 +204,23 @@ pub struct Fdc8271 {
     /// Selected side (for DSD images) — driven by external bit on drive port.
     side: u8,
     phase: Phase,
-    /// Special registers: bad track 1, bad track 2, current track, mode, drive
-    /// control (low/high), bad track 1', bad track 2', current track' (second
-    /// drive).
-    special: [u8; 18],
+    /// Special / MMIO registers. The Acorn DFS-098 service ROM reaches well
+    /// past the documented "internal" register set (0x00..0x1F) to talk to
+    /// the MMIO ports — $23 is `mmioDriveOut`, $24 is `mmioClocks`, $25 is
+    /// `mmioData` (see jsbeeb intel-fdc.js). Sizing the array to 64 lets
+    /// any 6-bit register index be addressed without aliasing the latches
+    /// for drive-select / step / load-head.
+    special: [u8; 64],
     /// Latched NMI line state.
     nmi_pending: bool,
     /// Specify-command parameters (step rate, head settle, head load, etc.).
     step_rate: u8,
     head_settle: u8,
     head_load: u8,
+    /// Cycle counter for the periodic index pulse. Real 5.25" drives spin at
+    /// 300 rpm = 200 ms / revolution. At 2 MHz CPU clock that's 400 000
+    /// cycles; the index pulse asserts for ~3 ms (6 000 cycles) per turn.
+    rotation_cycle: u32,
 }
 
 impl Default for Fdc8271 {
@@ -237,11 +244,12 @@ impl Fdc8271 {
             cur_drive: 0,
             side: 0,
             phase: Phase::Idle,
-            special: [0; 18],
+            special: [0; 64],
             nmi_pending: false,
             step_rate: 0,
             head_settle: 0,
             head_load: 0,
+            rotation_cycle: 0,
         }
     }
 
@@ -283,11 +291,22 @@ impl Fdc8271 {
     pub fn poll_nmi_edge(&mut self) -> bool {
         let edge = self.nmi_pending;
         self.nmi_pending = false;
+        if edge && std::env::var("FDC_TRACE_NMI").is_ok() {
+            eprintln!("NMI fire: status=${:02X}", self.status);
+        }
         edge
+    }
+
+    /// True when the index hole is currently passing the read head.
+    /// Asserted for the first ~3 ms of each ~200 ms revolution.
+    fn index_active(&self) -> bool {
+        // 6000 / 400000 = 1.5 % duty cycle, close to a real disc.
+        self.rotation_cycle < 6_000
     }
 
     /// Advance internal state by `cycles` CPU clocks.
     pub fn tick(&mut self, cycles: u32) {
+        self.rotation_cycle = (self.rotation_cycle + cycles) % 400_000;
         if cycles == 0 {
             return;
         }
@@ -382,7 +401,7 @@ impl Fdc8271 {
                         offset,
                         sectors_left,
                     };
-                    self.delay = 32;
+                    self.delay = 64;
                 }
             }
             Phase::Writing {
@@ -413,7 +432,7 @@ impl Fdc8271 {
                         sectors_left,
                         buffer: buf,
                     };
-                    self.delay = 32;
+                    self.delay = 64;
                 } else {
                     // Consume the byte the CPU just deposited.
                     buf.push(self.data);
@@ -453,7 +472,7 @@ impl Fdc8271 {
                             sectors_left,
                             buffer: buf,
                         };
-                        self.delay = 32;
+                        self.delay = 64;
                     }
                 }
             }
@@ -577,19 +596,28 @@ impl Fdc8271 {
     }
 
     fn cmd_read_drive_status(&mut self) {
-        // Build status byte:
-        //   bit 7  WP   (write protect)
-        //   bit 6  RDY1 (drive 1 ready)
-        //   bit 5  RDY0 (drive 0 ready)
-        //   bit 4  HEAD MOTOR ON
-        //   bit 3  Track 0 detected on currently-selected drive
-        //   bit 2  WRITE FAULT
-        //   bit 1  INDEX
-        //   bit 0  irrelevant
-        let mut s: u8 = 0;
+        // 8271 "drive in" byte. Layout per beebjit / jsbeeb intel-fdc.js
+        // (cross-checked against scarybeasts' real-hardware observations):
+        //   bit 7  always 1            (sentinel)
+        //   bit 6  RDY1   — drive 1 selected & spinning
+        //   bit 5  unused
+        //   bit 4  INDEX  — index pulse (we model as always-low)
+        //   bit 3  WR_PROT
+        //   bit 2  RDY0   — drive 0 selected & spinning
+        //   bit 1  TRK0   — head at track 0 of selected drive
+        //   bit 0  always 1            (sentinel)
+        //
+        // DFS-098 checks the sentinels and the RDY/TRK0 bits when deciding
+        // whether to issue Read Special Register / additional Read Drive
+        // Status calls before kicking off a Read Data. Missing the bit-0
+        // sentinel diverts DFS down the wrong branch and it never seeks to
+        // the file's track.
+        let mut s: u8 = 0x81;
         if self.drives[self.cur_drive].write_protect {
-            s |= 0x40;
+            s |= 0x08;
         }
+        // We don't model drive-select latching from special-register $23
+        // yet, so "loaded" stands in for "selected & spinning".
         if self.drives[0].loaded() {
             s |= 0x04;
         }
@@ -599,9 +627,8 @@ impl Fdc8271 {
         if self.drives[self.cur_drive].track == 0 {
             s |= 0x02;
         }
-        // Always "ready" if image loaded
-        if self.drives[self.cur_drive].loaded() {
-            s |= 0x80;
+        if self.index_active() {
+            s |= 0x10;
         }
         self.result = s;
         self.status = status::RESULT_FULL;
@@ -652,15 +679,29 @@ impl Fdc8271 {
     }
 
     fn cmd_read_special_register(&mut self) {
-        let idx = self.params[0].min((self.special.len() - 1) as u8);
+        let idx = self.params[0] & 0x3F;
         self.result = self.special[idx as usize];
         self.status = status::RESULT_FULL;
         self.phase = Phase::Idle;
     }
 
     fn cmd_write_special_register(&mut self) {
-        let idx = self.params[0].min((self.special.len() - 1) as u8);
-        self.special[idx as usize] = self.params[1];
+        let idx = self.params[0] & 0x3F;
+        let val = self.params[1];
+        self.special[idx as usize] = val;
+        // Register $23 is `mmioDriveOut` — DFS writes here to select a drive
+        // and load the head. Bits per jsbeeb's `DriveOut` enum:
+        //   $80 select_1, $40 select_0, $20 side, $08 loadHead, $01 writeEnable.
+        // We mirror the select bits into cur_drive / side so subsequent
+        // Read Drive Status / Seek / Read Data see the right drive.
+        if idx == 0x23 {
+            match val & 0xC0 {
+                0x40 => self.cur_drive = 0,
+                0x80 => self.cur_drive = 1,
+                _ => {} // both / neither — leave cur_drive alone
+            }
+            self.side = if val & 0x20 != 0 { 1 } else { 0 };
+        }
         self.complete_with(result::OK);
     }
 
@@ -703,7 +744,13 @@ impl Fdc8271 {
             offset: 0,
             sectors_left: count,
         };
-        self.delay = 200; // head settle
+        // Real 8271 waits for the sector ID to come round under the head
+        // before delivering the first byte — up to one full revolution
+        // (~400_000 cycles at 2 MHz). DFS uses this latency to install the
+        // NMI buffer pointer ($A6/$A7) and the byte counter ($A3/$A4/$A5).
+        // 8_000 cycles (≈4 ms) is enough for the slowest published DFS-098
+        // / DFS-090 setup path; faster would race the CPU and lose bytes.
+        self.delay = 8_000;
     }
 
     fn cmd_write_data(&mut self) {
@@ -833,12 +880,16 @@ mod tests {
         fdc.write(1, 5); // track
         fdc.write(1, 3); // sector
         fdc.write(1, 1); // 1 sector
-        fdc.tick(300);
-        // First NMI should latch sector data byte 0 (which is `track`=5).
+        // First byte appears after the head-settle / sector-search delay
+        // (≈8000 cycles in our model — matches DFS's expectation that it has
+        // time to install the NMI buffer pointer between Read Data issue and
+        // the first byte arriving).
+        fdc.tick(8500);
         assert!(fdc.poll_nmi_edge());
         assert_eq!(fdc.read(4), 5);
-        // Next byte (sector index = 3) follows after the inter-byte delay.
-        fdc.tick(50);
+        // Next byte follows after the inter-byte delay (64 cycles between
+        // bytes within a sector).
+        fdc.tick(100);
         assert!(fdc.poll_nmi_edge());
         assert_eq!(fdc.read(4), 3);
     }
