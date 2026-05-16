@@ -34,6 +34,7 @@ pub mod bus;
 pub mod crtc;
 pub mod display;
 pub mod fdc8271;
+pub mod gamepad;
 pub mod hardware;
 pub mod machine;
 pub mod memory;

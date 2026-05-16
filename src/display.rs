@@ -90,6 +90,7 @@ pub struct DisplayApp {
     /// Keeps the cpal stream alive for the lifetime of the window.
     /// Dropping it (or initialisation failure) silently disables audio.
     _audio: Option<crate::audio::AudioOutput>,
+    gamepad: crate::gamepad::GamepadBridge,
     fps_accum: u32,
     fps_window_start: Instant,
 }
@@ -111,6 +112,7 @@ impl DisplayApp {
             context: None,
             title_prefix: title.into(),
             _audio: audio,
+            gamepad: crate::gamepad::GamepadBridge::new(),
             fps_accum: 0,
             fps_window_start: Instant::now(),
         }
@@ -202,6 +204,10 @@ impl ApplicationHandler for DisplayApp {
                 if frames_to_run > 4 {
                     frames_to_run = 4;
                 }
+                // Forward any pending gamepad state into the joystick API
+                // before stepping the CPU so this frame's reads see the
+                // latest axis values.
+                self.gamepad.pump(&mut self.machine);
                 for _ in 0..frames_to_run {
                     if let Err(err) = self.machine.run_one_frame() {
                         eprintln!("machine error: {err}");

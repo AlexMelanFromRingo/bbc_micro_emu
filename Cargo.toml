@@ -15,13 +15,17 @@ mos6502_emu = { path = "../mos6502_emu" }
 winit = "0.30"
 softbuffer = "0.4"
 cpal = { version = "0.15", optional = true }
+gilrs = { version = "0.10", optional = true }
 
 [features]
-default = ["audio"]
+default = ["audio", "gamepad"]
 # Pulls in cpal so the windowed binary streams SN76489 audio in real time.
 # Disable with `--no-default-features` for headless CI / WSL boxes without
 # an audio backend.
 audio = ["dep:cpal"]
+# Pulls in gilrs for real gamepad input → Machine::set_joystick_*. Disable
+# on hosts without a usable input layer (e.g. headless containers).
+gamepad = ["dep:gilrs"]
 
 [profile.release]
 lto = "thin"
