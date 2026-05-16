@@ -318,35 +318,34 @@ impl Machine {
             self.cpu.step(&mut self.bus)?;
         }
         let dt = self.cpu.cycles - cycles_before;
-        self.cycles_since_crtc_tick += dt;
-        // Tick CRTC in chunks of ~16 cycles to keep things smooth without
-        // dominating the per-instruction cost.
-        if self.cycles_since_crtc_tick >= 16 {
-            let dt = self.cycles_since_crtc_tick as u32;
-            let events = self.bus.hardware.crtc.tick(dt);
-            // System VIA CA1 is wired to /VSYNC; the line is active-low on real
-            // hw. We just mirror the CRTC's vsync_active state — Via6522::set_ca1
-            // handles edge detection per PCR config (MOS sets falling edge).
-            self.bus
-                .hardware
-                .system_via
-                .pulse_vsync(self.bus.hardware.crtc.vsync_active);
-            // Tick System and User VIA timers (T1/T2). Elite drives T2 of the
-            // User VIA to fire mid-frame and swap CRTC parameters for the
-            // 3D/HUD split — without timer support, the lower HUD never
-            // displays.
-            self.bus.hardware.system_via.tick(dt);
-            self.bus.hardware.user_via.tick(dt);
-            self.bus.hardware.fdc.tick(dt);
-            self.bus.hardware.adc.tick(dt);
-            if self.bus.hardware.adc.poll_eoc_edge() {
-                // End-Of-Conversion is wired to CB1 on the System VIA.
-                self.bus.hardware.system_via.via.set_cb1(true);
-                self.bus.hardware.system_via.via.set_cb1(false);
-            }
-            self.cycles_since_crtc_tick = 0;
-            let _ = events;
+        // Tick the CRTC every instruction (no batching) so that
+        // current_scanline_index is always up-to-date when the CPU writes
+        // R12/R13 mid-frame. Elite uses a User-VIA T2 IRQ to swap the
+        // display start halfway down the screen for the 3D / HUD split;
+        // batching CRTC ticks made the split land on the wrong scanline.
+        let dt32 = dt as u32;
+        let _events = self.bus.hardware.crtc.tick(dt32);
+        // System VIA CA1 is wired to /VSYNC; mirror the CRTC's vsync_active
+        // state — Via6522::set_ca1 handles edge detection per PCR config
+        // (MOS sets falling edge).
+        self.bus
+            .hardware
+            .system_via
+            .pulse_vsync(self.bus.hardware.crtc.vsync_active);
+        // Tick System and User VIA timers (T1/T2). Elite drives T2 of the
+        // User VIA to fire mid-frame and swap CRTC parameters for the
+        // 3D/HUD split — without timer support, the lower HUD never
+        // displays. These also tick every instruction now so the T2 IRQ
+        // fires exactly when the timer expires.
+        self.bus.hardware.system_via.tick(dt32);
+        self.bus.hardware.user_via.tick(dt32);
+        self.bus.hardware.fdc.tick(dt32);
+        self.bus.hardware.adc.tick(dt32);
+        if self.bus.hardware.adc.poll_eoc_edge() {
+            self.bus.hardware.system_via.via.set_cb1(true);
+            self.bus.hardware.system_via.via.set_cb1(false);
         }
+        self.cycles_since_crtc_tick = 0;
         Ok(dt)
     }
 
