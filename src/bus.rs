@@ -12,6 +12,9 @@ thread_local! {
     /// env-gated bus write-tracer can attribute writes to a code location.
     /// Not on the hot path — only read inside the BBC_WRITE_TRACE branch.
     pub static LAST_PC: Cell<u16> = const { Cell::new(0) };
+    /// Ring buffer of recent PCs, populated only when BBC_BRK_TRACE is on.
+    pub static PC_HISTORY: std::cell::RefCell<Vec<u16>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 pub struct BbcBus {

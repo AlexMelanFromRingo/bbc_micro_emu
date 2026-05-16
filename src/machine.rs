@@ -250,16 +250,53 @@ impl Machine {
             }
         }
         // Env-gated BRK-source trace: logs every $00 opcode (BRK) the CPU
-        // is about to execute, with the bank it's executing from.
+        // is about to execute, with the bank it's executing from, plus a
+        // ring buffer of the last 32 PCs so we can see how we got here.
         if std::env::var("BBC_BRK_TRACE").is_ok() {
             let pc = self.cpu.registers.pc;
-            // Read directly through MemoryView::peek so we don't trigger
-            // side effects on SHEILA.
+            crate::bus::PC_HISTORY.with(|h| {
+                let mut v = h.borrow_mut();
+                if v.len() >= 32 {
+                    v.remove(0);
+                }
+                v.push(pc);
+            });
             use mos6502_emu::MemoryView;
             let op = self.bus.peek(pc);
             if op == 0 {
                 let bank = self.bus.memory.selected_bank();
-                eprintln!("BRK at ${pc:04X} bank={bank}");
+                let sp = self.cpu.registers.sp as u16;
+                let lo = self.bus.peek(0x0100 | (sp.wrapping_add(1) & 0xFF));
+                let hi = self.bus.peek(0x0100 | (sp.wrapping_add(2) & 0xFF));
+                let ret = ((hi as u16) << 8) | lo as u16;
+                eprintln!("BRK at ${pc:04X} bank={bank} SP=${sp:02X} top-of-stack=${ret:04X}");
+                crate::bus::PC_HISTORY.with(|h| {
+                    let v = h.borrow();
+                    eprint!("  recent PCs:");
+                    for p in v.iter() {
+                        eprint!(" ${p:04X}");
+                    }
+                    eprintln!();
+                });
+            }
+        }
+        // Trace every PC the CPU visits within a small window (16 KiB
+        // address range). Useful for "what code is in $2500-$2700?"
+        // — set BBC_PC_RANGE to e.g. "2500-26FF".
+        if let Ok(spec) = std::env::var("BBC_PC_RANGE") {
+            let pc = self.cpu.registers.pc;
+            if let Some((a, b)) = spec.split_once('-')
+                && let (Ok(lo), Ok(hi)) = (
+                    u16::from_str_radix(a.trim().trim_start_matches('$'), 16),
+                    u16::from_str_radix(b.trim().trim_start_matches('$'), 16),
+                )
+                && pc >= lo
+                && pc <= hi
+            {
+                use mos6502_emu::MemoryView;
+                let op = self.bus.peek(pc);
+                let bank = self.bus.memory.selected_bank();
+                eprintln!("PC=${pc:04X} op=${op:02X} bank={bank}");
             }
         }
         self.cpu.set_irq_line(self.bus.hardware.poll_irq());
