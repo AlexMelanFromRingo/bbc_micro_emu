@@ -100,33 +100,16 @@ impl Tube {
     pub fn host_write(&mut self, reg: u8, value: u8) {
         match reg & 0x07 {
             0 => self.write_control(value),
-            1 => {
-                if self.r1_h2p.len() < FIFO_DEPTH_R1_R4 {
-                    self.r1_h2p.push_back(value);
+            1 if self.r1_h2p.len() < FIFO_DEPTH_R1_R4 => self.r1_h2p.push_back(value),
+            3 if self.r2_h2p.len() < FIFO_DEPTH_R2 => self.r2_h2p.push_back(value),
+            5 if self.r3_h2p.len() < FIFO_DEPTH_R3 => self.r3_h2p.push_back(value),
+            7 if self.r4_h2p.len() < FIFO_DEPTH_R1_R4 => {
+                self.r4_h2p.push_back(value);
+                if self.control & 0x01 != 0 {
+                    self.parasite_irq = true;
                 }
             }
-            2 => {} // R2 status is read-only
-            3 => {
-                if self.r2_h2p.len() < FIFO_DEPTH_R2 {
-                    self.r2_h2p.push_back(value);
-                }
-            }
-            4 => {} // R3 status is read-only
-            5 => {
-                if self.r3_h2p.len() < FIFO_DEPTH_R3 {
-                    self.r3_h2p.push_back(value);
-                }
-            }
-            6 => {} // R4 status is read-only
-            7 => {
-                if self.r4_h2p.len() < FIFO_DEPTH_R1_R4 {
-                    self.r4_h2p.push_back(value);
-                    if self.control & 0x01 != 0 {
-                        self.parasite_irq = true;
-                    }
-                }
-            }
-            _ => {}
+            _ => {} // status registers + full FIFOs swallow the write
         }
         self.refresh_irq();
     }
@@ -150,30 +133,16 @@ impl Tube {
     /// Parasite-side write.
     pub fn parasite_write(&mut self, reg: u8, value: u8) {
         match reg & 0x07 {
-            1 => {
-                if self.r1_p2h.len() < FIFO_DEPTH_R1_R4 {
-                    self.r1_p2h.push_back(value);
+            1 if self.r1_p2h.len() < FIFO_DEPTH_R1_R4 => self.r1_p2h.push_back(value),
+            3 if self.r2_p2h.len() < FIFO_DEPTH_R2 => self.r2_p2h.push_back(value),
+            5 if self.r3_p2h.len() < FIFO_DEPTH_R3 => self.r3_p2h.push_back(value),
+            7 if self.r4_p2h.len() < FIFO_DEPTH_R1_R4 => {
+                self.r4_p2h.push_back(value);
+                if self.control & 0x10 != 0 {
+                    self.host_irq = true;
                 }
             }
-            3 => {
-                if self.r2_p2h.len() < FIFO_DEPTH_R2 {
-                    self.r2_p2h.push_back(value);
-                }
-            }
-            5 => {
-                if self.r3_p2h.len() < FIFO_DEPTH_R3 {
-                    self.r3_p2h.push_back(value);
-                }
-            }
-            7 => {
-                if self.r4_p2h.len() < FIFO_DEPTH_R1_R4 {
-                    self.r4_p2h.push_back(value);
-                    if self.control & 0x10 != 0 {
-                        self.host_irq = true;
-                    }
-                }
-            }
-            _ => {} // status registers are read-only
+            _ => {} // status registers + full FIFOs swallow the write
         }
         self.refresh_irq();
     }
