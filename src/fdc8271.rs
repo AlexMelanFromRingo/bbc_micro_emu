@@ -492,7 +492,8 @@ impl Fdc8271 {
     }
 
     pub fn read(&mut self, reg: u8) -> u8 {
-        match reg & 0x07 {
+        let r = reg & 0x07;
+        let value = match r {
             0 => self.status,
             1 => {
                 let r = self.result;
@@ -505,6 +506,21 @@ impl Fdc8271 {
                 d
             }
             _ => 0,
+        };
+        if std::env::var("FDC_TRACE_READ").is_ok() {
+            eprintln!("FDC R$FE8{r}={value:02X} (phase={:?})", self.phase_kind());
+        }
+        value
+    }
+
+    fn phase_kind(&self) -> &'static str {
+        match self.phase {
+            Phase::Idle => "Idle",
+            Phase::GatherParams { .. } => "GatherParams",
+            Phase::Reading { .. } => "Reading",
+            Phase::Writing { .. } => "Writing",
+            Phase::FinishingRead => "FinishingRead",
+            Phase::Complete => "Complete",
         }
     }
 
@@ -613,21 +629,31 @@ impl Fdc8271 {
         // sentinel diverts DFS down the wrong branch and it never seeks to
         // the file's track.
         let mut s: u8 = 0x81;
+        // The RDY/TRK0/INDEX bits only assert while the drive is actually
+        // spinning, i.e. the corresponding select bit + the loadHead bit are
+        // set in mmioDriveOut ($23). DFS uses the absence-then-presence of
+        // RDY0 as a "drive newly ready" trigger; always reporting it ready
+        // makes DFS skip the second Read Drive Status / Seek pair, which in
+        // turn leaves the post-catalogue state machine half-initialised.
+        let drive_out = self.special[0x23];
+        let select_0 = drive_out & 0x40 != 0;
+        let select_1 = drive_out & 0x80 != 0;
+        let load_head = drive_out & 0x08 != 0;
+        let spinning_0 = select_0 && load_head && self.drives[0].loaded();
+        let spinning_1 = select_1 && load_head && self.drives[1].loaded();
         if self.drives[self.cur_drive].write_protect {
             s |= 0x08;
         }
-        // We don't model drive-select latching from special-register $23
-        // yet, so "loaded" stands in for "selected & spinning".
-        if self.drives[0].loaded() {
+        if spinning_0 {
             s |= 0x04;
         }
-        if self.drives[1].loaded() {
+        if spinning_1 {
             s |= 0x40;
         }
-        if self.drives[self.cur_drive].track == 0 {
+        if (spinning_0 || spinning_1) && self.drives[self.cur_drive].track == 0 {
             s |= 0x02;
         }
-        if self.index_active() {
+        if (spinning_0 || spinning_1) && self.index_active() {
             s |= 0x10;
         }
         self.result = s;
@@ -853,14 +879,19 @@ mod tests {
     fn read_drive_status_reflects_loaded_image_on_drive_0() {
         let mut fdc = Fdc8271::new();
         fdc.load_image(0, dummy_ssd()).unwrap();
-        // Command $2C with drive 0 selected.
+        // Spin drive 0 up by setting mmioDriveOut ($23) = select_0 | loadHead.
+        fdc.write(0, 0x3A);
+        fdc.write(1, 0x23);
+        fdc.write(1, 0x48);
+        // Now Read Drive Status — RDY0 (bit 2) + TRK0 (bit 1) + bit 7/0
+        // sentinels are expected.
         fdc.write(0, 0x2C);
-        // status should have RESULT_FULL set immediately after Read Drive Status
         assert_eq!(fdc.status_byte() & status::RESULT_FULL, status::RESULT_FULL);
         let r = fdc.read(1);
-        // Bit 7 set (drive 0 loaded and ready), bit 2 set (drive 0 loaded), bit 1 set (track 0)
-        assert!(r & 0x80 != 0);
-        assert!(r & 0x02 != 0);
+        assert!(r & 0x80 != 0, "bit 7 sentinel should be set");
+        assert!(r & 0x04 != 0, "RDY0 should be set once drive selected");
+        assert!(r & 0x02 != 0, "TRK0 should be set at track 0");
+        assert!(r & 0x01 != 0, "bit 0 sentinel should be set");
     }
 
     #[test]

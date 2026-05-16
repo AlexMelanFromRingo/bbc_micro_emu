@@ -133,6 +133,29 @@ fn elite_cat_diagnostic() {
 }
 
 #[test]
+#[ignore = "needs roms/* + disks/Elite.ssd"]
+fn elite_help_then_info_diagnostic() {
+    let mut machine = build_machine();
+    if !mount(&mut machine, "Elite.ssd") {
+        return;
+    }
+    machine.run_for_cycles(12_000_000, u64::MAX).unwrap();
+    machine.type_string("*HELP\n");
+    machine.run_for_cycles(20_000_000, u64::MAX).unwrap();
+    machine.type_string("*INFO !BOOT\n");
+    machine.run_for_cycles(40_000_000, u64::MAX).unwrap();
+    dump_mode7(&machine);
+    let ram = machine.bus.memory.ram();
+    // Search MODE 0/MODE 4 framebuffers for "!BOOT" output too.
+    for region_start in [0x3000usize, 0x5800, 0x6000] {
+        let region = &ram[region_start..0x8000];
+        if region.windows(5).any(|w| w == b"!BOOT") {
+            eprintln!("found !BOOT text in ${:04X}..", region_start);
+        }
+    }
+}
+
+#[test]
 #[ignore = "needs roms/* + disks/elite_jsbeeb.ssd (Ian Bell fixed-up image)"]
 fn elite_jsbeeb_exec_load_diagnostic() {
     run_with_disk("elite_jsbeeb.ssd", "*EXEC LOAD\n", "jsbeeb_exec");

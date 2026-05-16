@@ -58,7 +58,11 @@ fn build_minimal_ssd() -> Vec<u8> {
 fn read_drive_status_reports_drive_loaded() {
     let mut fdc = Fdc8271::new();
     fdc.load_image(0, build_minimal_ssd()).unwrap();
-    // Command 0x2C = Read Drive Status, no parameters.
+    // Spin drive 0 up first via mmioDriveOut ($23) = select_0 | loadHead.
+    fdc.write(0, 0x3A);
+    fdc.write(1, 0x23);
+    fdc.write(1, 0x48);
+    // Now Read Drive Status (command 0x2C, no parameters).
     fdc.write(0, 0x2C);
     let status = fdc.read(0);
     assert!(
@@ -66,9 +70,9 @@ fn read_drive_status_reports_drive_loaded() {
         "RESULT_FULL must be set after Read Drive Status, got ${status:02X}"
     );
     let result = fdc.read(1);
-    assert!(result & 0x80 != 0, "drive 0 'ready' bit should be set");
-    assert!(result & 0x04 != 0, "drive 0 'present' bit should be set");
-    assert!(result & 0x02 != 0, "track 0 detect bit should be set");
+    assert!(result & 0x80 != 0, "bit 7 sentinel should be set");
+    assert!(result & 0x04 != 0, "RDY0 should be set once drive selected");
+    assert!(result & 0x02 != 0, "TRK0 should be set at track 0");
 }
 
 #[test]
